@@ -1,46 +1,48 @@
 """
-Smart Door — Streamlit App
-==========================
-Funciones:
-  • Comandos de voz
-  • Botones manuales
-  • Detección de gatos y perros con TensorFlow
-  • Control del ESP32/Wokwi
+Smart Pet Door - Streamlit (Solo MQTT)
+======================================
+No depende de Wokwi URLs ni de endpoints HTTP.
+Todo el control se realiza mediante MQTT.
+
+Broker:
+    broker.hivemq.com
+Puerto:
+    1883
+
+Topics:
+    smartdoor/command    -> enviar comandos
+    smartdoor/status     -> recibir estado ("abierta", "cerrada")
+    smartdoor/detection  -> recibir detecciones ("dog", "cat")
 """
 
-import os
 import io
-import requests
+import uuid
+import time
 import numpy as np
 from PIL import Image
 import streamlit as st
 from streamlit_javascript import st_javascript
-from dotenv import load_dotenv
 from tensorflow.keras.applications.mobilenet_v2 import (
     MobileNetV2,
     preprocess_input,
     decode_predictions,
 )
+import paho.mqtt.client as mqtt
 
-load_dotenv()
+# =========================================================
+# CONFIGURACIÓN MQTT
+# =========================================================
+MQTT_BROKER = "broker.hivemq.com"
+MQTT_PORT = 1883
 
-# ── CONFIGURACIÓN ────────────────────────────────────────────────────────
-# IMPORTANTE:
-# En Streamlit Secrets o en .env debes poner:
-# ESP32_URL=https://tu-subdominio.wokwi.app
-#
-# NO uses:
-# https://wokwi.com/projects/xxxxxxxx
-#
-DEFAULT_ESP32_URL = ""
-ESP32_URL = os.getenv("ESP32_URL", DEFAULT_ESP32_URL).rstrip("/")
+TOPIC_COMMAND = "smartdoor/command"
+TOPIC_STATUS = "smartdoor/status"
+TOPIC_DETECTION = "smartdoor/detection"
 
 
-def is_valid_wokwi_url(url: str) -> bool:
-    return url.startswith("https://") and ".wokwi.app" in url
-
-
-# ── MODELO DE IA ─────────────────────────────────────────────────────────
+# =========================================================
+# MODELO DE IA
+# =========================================================
 @st.cache_resource
 def load_model():
     return MobileNetV2(weights="imagenet")
@@ -49,75 +51,55 @@ def load_model():
 model = load_model()
 
 
-# ── HELPERS ──────────────────────────────────────────────────────────────
-def safe_json_response(response: requests.Response) -> dict:
-    try:
-        return response.json()
-    except Exception:
-        return {
-            "error": f"Respuesta inválida (HTTP {response.status_code})",
-            "response": response.text,
-        }
+# =========================================================
+# MQTT
+# =========================================================
+def on_message(client, userdata, msg):
+    payload = msg.payload.decode("utf-8").strip().lower()
+
+    if msg.topic == TOPIC_STATUS:
+        if payload == "abierta":
+            st.session_state.door_state = "open"
+        elif payload == "cerrada":
+            st.session_state.door_state = "closed"
+
+    elif msg.topic == TOPIC_DETECTION:
+        if payload in ("dog", "cat"):
+            st.session_state.last_animal = payload
 
 
-def check_configuration():
-    if not ESP32_URL:
-        st.error(
-            "❌ Falta configurar ESP32_URL en Secrets o .env.\n\n"
-            "Ejemplo:\n"
-            "ESP32_URL=https://abc123.wokwi.app"
-        )
-        st.stop()
-
-    if not is_valid_wokwi_url(ESP32_URL):
-        st.error(
-            "❌ ESP32_URL no es válida.\n\n"
-            "Debe verse así:\n"
-            "https://abc123.wokwi.app\n\n"
-            "No uses:\n"
-            "https://wokwi.com/projects/..."
-        )
-        st.stop()
-
-
-def request_json(method: str, path: str, **kwargs) -> dict:
-    try:
-        url = f"{ESP32_URL}{path}"
-        response = requests.request(method, url, timeout=10, **kwargs)
-        return safe_json_response(response)
-    except Exception as e:
-        return {"error": str(e)}
-
-
-# ── COMUNICACIÓN CON ESP32 ───────────────────────────────────────────────
-def send_door_command(action: str) -> dict:
-    return request_json(
-        "POST",
-        "/door",
-        json={"action": action},
+@st.cache_resource
+def get_mqtt_client():
+    client = mqtt.Client(
+        client_id=f"streamlit-smartdoor-{uuid.uuid4().hex[:8]}"
     )
 
+    client.on_message = on_message
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
-def send_detect_command(animal: str) -> dict:
-    # El ESP32 usa /detect, NO /led
-    return request_json(
-        "POST",
-        "/detect",
-        json={"animal": animal},
-    )
+    client.subscribe(TOPIC_STATUS)
+    client.subscribe(TOPIC_DETECTION)
 
+    client.loop_start()
 
-def get_door_status() -> dict:
-    data = request_json("GET", "/status")
-
-    if "door" not in data:
-        data["door"] = "desconocido"
-
-    return data
+    return client
 
 
-# ── DETECCIÓN DE ANIMALES ────────────────────────────────────────────────
+mqtt_client = get_mqtt_client()
+
+
+def send_command(command: str):
+    mqtt_client.publish(TOPIC_COMMAND, command, retain=False)
+    time.sleep(0.5)  # dar tiempo a que el ESP32 responda
+
+
+# =========================================================
+# DETECCIÓN DE ANIMALES
+# =========================================================
 def detect_animal(image_bytes: bytes) -> str:
+    """
+    Retorna: 'dog', 'cat' o 'none'
+    """
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img = img.resize((224, 224))
@@ -130,10 +112,22 @@ def detect_animal(image_bytes: bytes) -> str:
         results = decode_predictions(preds, top=5)[0]
 
         dog_keywords = [
-            "dog", "retriever", "shepherd", "poodle", "terrier",
-            "beagle", "husky", "bulldog", "chihuahua", "pug",
-            "doberman", "rottweiler", "labrador", "malamute",
-            "spaniel", "wolfhound"
+            "dog",
+            "retriever",
+            "shepherd",
+            "poodle",
+            "terrier",
+            "beagle",
+            "husky",
+            "bulldog",
+            "chihuahua",
+            "pug",
+            "doberman",
+            "rottweiler",
+            "labrador",
+            "malamute",
+            "spaniel",
+            "wolfhound",
         ]
 
         for _, label, _ in results:
@@ -151,7 +145,9 @@ def detect_animal(image_bytes: bytes) -> str:
         return "none"
 
 
-# ── UI ───────────────────────────────────────────────────────────────────
+# =========================================================
+# STREAMLIT UI
+# =========================================================
 st.set_page_config(
     page_title="Puerta Inteligente",
     page_icon="🚪",
@@ -159,11 +155,11 @@ st.set_page_config(
 )
 
 st.title("🚪 Puerta Inteligente")
-st.caption("Control por voz · Detección de mascotas · ESP32 + Wokwi")
+st.caption("Control por voz · Botones · IA · MQTT")
 
-check_configuration()
-
-# ── SESSION STATE ────────────────────────────────────────────────────────
+# =========================================================
+# SESSION STATE
+# =========================================================
 if "door_state" not in st.session_state:
     st.session_state.door_state = "desconocido"
 
@@ -179,17 +175,14 @@ def add_log(msg: str):
     st.session_state.log = st.session_state.log[:10]
 
 
-# ── ESTADO ACTUAL ────────────────────────────────────────────────────────
-status = get_door_status()
-st.session_state.door_state = status.get("door", "desconocido")
-
-if "error" in status:
-    st.warning(f"⚠️ {status['error']}")
-
+# =========================================================
+# ESTADO ACTUAL
+# =========================================================
 col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Estado")
+
     if st.session_state.door_state == "open":
         st.success("🔓 ABIERTA")
     elif st.session_state.door_state == "closed":
@@ -199,6 +192,7 @@ with col1:
 
 with col2:
     st.subheader("Última detección")
+
     if st.session_state.last_animal == "dog":
         st.write("🐕 Perro")
     elif st.session_state.last_animal == "cat":
@@ -208,7 +202,9 @@ with col2:
 
 st.divider()
 
-# ── CONTROL POR VOZ ──────────────────────────────────────────────────────
+# =========================================================
+# CONTROL POR VOZ
+# =========================================================
 st.subheader("🎙️ Control por voz")
 
 voice_js = """
@@ -242,48 +238,43 @@ if st.button("🎤 Hablar", use_container_width=True):
         st.info(f"Escuché: {transcript}")
 
         if "abre" in transcript:
-            resp = send_door_command("open")
-            if "error" not in resp:
-                st.success("Puerta abierta")
-                add_log("🎙️ Voz → abrir")
-            else:
-                st.error(resp["error"])
+            send_command("open")
+            st.success("Puerta abierta")
+            add_log("🎙️ Voz → abrir")
+            st.rerun()
 
         elif "cierra" in transcript:
-            resp = send_door_command("close")
-            if "error" not in resp:
-                st.success("Puerta cerrada")
-                add_log("🎙️ Voz → cerrar")
-            else:
-                st.error(resp["error"])
+            send_command("close")
+            st.success("Puerta cerrada")
+            add_log("🎙️ Voz → cerrar")
+            st.rerun()
 
 st.divider()
 
-# ── CONTROL MANUAL ───────────────────────────────────────────────────────
+# =========================================================
+# BOTONES MANUALES
+# =========================================================
 st.subheader("🔘 Control manual")
+
 col_open, col_close = st.columns(2)
 
 with col_open:
     if st.button("🔓 Abrir puerta", use_container_width=True):
-        resp = send_door_command("open")
-        if "error" not in resp:
-            st.success("Puerta abierta")
-            add_log("🔘 Botón → abrir")
-        else:
-            st.error(resp["error"])
+        send_command("open")
+        add_log("🔘 Botón → abrir")
+        st.rerun()
 
 with col_close:
     if st.button("🔒 Cerrar puerta", use_container_width=True):
-        resp = send_door_command("close")
-        if "error" not in resp:
-            st.success("Puerta cerrada")
-            add_log("🔘 Botón → cerrar")
-        else:
-            st.error(resp["error"])
+        send_command("close")
+        add_log("🔘 Botón → cerrar")
+        st.rerun()
 
 st.divider()
 
-# ── DETECCIÓN DE MASCOTAS ────────────────────────────────────────────────
+# =========================================================
+# DETECCIÓN DE MASCOTAS
+# =========================================================
 st.subheader("📷 Detección de mascotas")
 
 source = st.radio(
@@ -302,7 +293,7 @@ if source == "Cámara":
 else:
     uploaded = st.file_uploader(
         "Sube una imagen",
-        type=["jpg", "jpeg", "png"]
+        type=["jpg", "jpeg", "png"],
     )
     if uploaded:
         image_bytes = uploaded.read()
@@ -314,23 +305,19 @@ if image_bytes:
         with st.spinner("Analizando..."):
             animal = detect_animal(image_bytes)
 
-        st.session_state.last_animal = animal
-
         if animal == "dog":
+            st.session_state.last_animal = "dog"
+            send_command("dog")
             st.success("🐕 Perro detectado")
-            resp = send_detect_command("dog")
-            if "error" in resp:
-                st.error(resp["error"])
-            else:
-                add_log("📷 IA → perro")
+            add_log("📷 IA → perro")
+            st.rerun()
 
         elif animal == "cat":
+            st.session_state.last_animal = "cat"
+            send_command("cat")
             st.success("🐈 Gato detectado")
-            resp = send_detect_command("cat")
-            if "error" in resp:
-                st.error(resp["error"])
-            else:
-                add_log("📷 IA → gato")
+            add_log("📷 IA → gato")
+            st.rerun()
 
         else:
             st.info("No se detectó un gato o perro")
@@ -338,7 +325,9 @@ if image_bytes:
 
 st.divider()
 
-# ── REGISTRO ─────────────────────────────────────────────────────────────
+# =========================================================
+# REGISTRO
+# =========================================================
 st.subheader("📋 Registro")
 
 if st.session_state.log:
@@ -347,13 +336,15 @@ if st.session_state.log:
 else:
     st.caption("Sin actividad aún")
 
-# ── CONFIGURACIÓN ────────────────────────────────────────────────────────
-with st.expander("⚙️ Configuración"):
-    st.text_input("URL del ESP32", value=ESP32_URL, disabled=True)
-    st.caption(
-        "Ejemplo correcto: https://abc123.wokwi.app\n"
-        "No uses la URL de https://wokwi.com/projects/..."
-    )
+# =========================================================
+# CONFIGURACIÓN
+# =========================================================
+with st.expander("⚙️ Configuración MQTT"):
+    st.text(f"Broker: {MQTT_BROKER}")
+    st.text(f"Puerto: {MQTT_PORT}")
+    st.text(f"Topic comandos: {TOPIC_COMMAND}")
+    st.text(f"Topic estado: {TOPIC_STATUS}")
+    st.text(f"Topic detección: {TOPIC_DETECTION}")
 
-    if st.button("🔄 Actualizar estado"):
+    if st.button("🔄 Actualizar"):
         st.rerun()
