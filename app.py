@@ -1,6 +1,3 @@
-# Smart Door — Streamlit App (Versión gratuita con detección de gatos y perros usando TensorFlow)
-
-```python
 """
 Smart Door — Streamlit App
 ==========================
