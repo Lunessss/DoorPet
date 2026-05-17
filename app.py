@@ -187,8 +187,6 @@ with col1:
         st.success("🔓 ABIERTA")
     elif st.session_state.door_state == "closed":
         st.error("🔒 CERRADA")
-    else:
-        st.info("❓ DESCONOCIDO")
 
 with col2:
     st.subheader("Última detección")
