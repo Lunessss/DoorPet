@@ -183,9 +183,9 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("Estado")
 
-    if st.session_state.door_state == "abierta":
+    if st.session_state.door_state == "open":
         st.success("🔓 ABIERTA")
-    elif st.session_state.door_state == "cerrada":
+    else:
         st.error("🔒 CERRADA")
 
 with col2:
