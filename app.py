@@ -1,3 +1,6 @@
+# Smart Door — Streamlit App (Código corregido)
+
+```python
 """
 Smart Door — Streamlit App
 ==========================
@@ -19,12 +22,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Configuración ──────────────────────────────────────────────────────────
-ESP32_URL   = os.getenv("ESP32_URL", "http://192.168.1.100")  # IP del ESP32 real
-                                                               # En Wokwi usa el
-                                                               # forwarder de Wokwi
+ESP32_URL = os.getenv("ESP32_URL", "http://192.168.1.100")
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+
+
+# ── Helper para parsear JSON de forma segura ───────────────────────────────
+def safe_json_response(response: requests.Response) -> dict:
+    """Convierte una respuesta HTTP a JSON de forma segura."""
+    if response.status_code == 200 and response.text.strip():
+        try:
+            return response.json()
+        except ValueError:
+            return {
+                "error": "La respuesta no es un JSON válido",
+                "response": response.text,
+            }
+    else:
+        return {
+            "error": f"Respuesta vacía o código {response.status_code}",
+            "response": response.text,
+        }
+
 
 # ── Helpers ESP32 ──────────────────────────────────────────────────────────
 def send_door_command(action: str) -> dict:
@@ -35,9 +55,10 @@ def send_door_command(action: str) -> dict:
             json={"action": action},
             timeout=5,
         )
-        return r.json()
+        return safe_json_response(r)
     except Exception as e:
         return {"error": str(e)}
+
 
 
 def send_led_command(animal: str) -> dict:
@@ -48,36 +69,28 @@ def send_led_command(animal: str) -> dict:
             json={"type": animal},
             timeout=5,
         )
-        return r.json()
+        return safe_json_response(r)
     except Exception as e:
         return {"error": str(e)}
 
 
+
 def get_door_status() -> dict:
+    """Obtiene el estado actual de la puerta desde /status."""
     try:
         r = requests.get(f"{ESP32_URL}/status", timeout=3)
+        data = safe_json_response(r)
 
-        # Verificar que la respuesta no esté vacía
-        if r.status_code == 200 and r.text.strip():
-            try:
-                return r.json()
-            except ValueError:
-                return {
-                    "door": "desconocido",
-                    "error": "La respuesta no es un JSON válido",
-                    "response": r.text
-                }
-        else:
-            return {
-                "door": "desconocido",
-                "error": f"Respuesta vacía o código {r.status_code}",
-                "response": r.text
-            }
+        # Si hubo error, aseguramos que siempre exista la clave 'door'
+        if "error" in data and "door" not in data:
+            data["door"] = "desconocido"
+
+        return data
 
     except Exception as e:
         return {
             "door": "desconocido",
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -156,16 +169,6 @@ st.markdown(
       .cat-badge { background: #dfe6e9; color: #2d3436; }
       .none-badge{ background: #f5f6fa; color: #636e72; }
 
-      .voice-btn {
-        background: linear-gradient(135deg, #6c5ce7, #a29bfe);
-        color: white !important;
-        border: none;
-        border-radius: 12px;
-        padding: 12px 28px;
-        font-size: 1rem;
-        cursor: pointer;
-        font-family: 'Space Mono', monospace;
-      }
       .pixel-preview {
         image-rendering: pixelated;
         width: 120px;
@@ -183,51 +186,87 @@ st.title("🚪 Puerta Inteligente")
 st.caption("Control por voz · Detección de mascotas · Pixel art LED")
 
 # ─── Estado de sesión ──────────────────────────────────────────────────────
-if "door_state"    not in st.session_state: st.session_state.door_state    = "desconocido"
-if "last_animal"   not in st.session_state: st.session_state.last_animal   = "none"
-if "voice_result"  not in st.session_state: st.session_state.voice_result  = ""
-if "log"           not in st.session_state: st.session_state.log           = []
+if "door_state" not in st.session_state:
+    st.session_state.door_state = "desconocido"
+if "last_animal" not in st.session_state:
+    st.session_state.last_animal = "none"
+if "voice_result" not in st.session_state:
+    st.session_state.voice_result = ""
+if "log" not in st.session_state:
+    st.session_state.log = []
+
+
 
 def add_log(msg: str):
     st.session_state.log.insert(0, msg)
     if len(st.session_state.log) > 10:
         st.session_state.log = st.session_state.log[:10]
 
+
 # ─── Estado en tiempo real ─────────────────────────────────────────────────
 status = get_door_status()
 st.session_state.door_state = status.get("door", "desconocido")
 
+# Mostrar error de conexión si existe
+if "error" in status:
+    st.warning(f"⚠️ ESP32: {status['error']}")
+
 col_state, col_animal = st.columns(2)
+
 with col_state:
     st.markdown("**Estado de la puerta**")
-    css_class = "status-open" if st.session_state.door_state == "open" else "status-closed"
-    icon      = "🔓" if st.session_state.door_state == "open" else "🔒"
+
+    if st.session_state.door_state == "open":
+        css_class = "status-open"
+        icon = "🔓"
+        label = "OPEN"
+    elif st.session_state.door_state == "closed":
+        css_class = "status-closed"
+        icon = "🔒"
+        label = "CLOSED"
+    else:
+        css_class = "status-closed"
+        icon = "❓"
+        label = "DESCONOCIDO"
+
     st.markdown(
-        f'<p class="{css_class}">{icon} {st.session_state.door_state.upper()}</p>',
+        f'<p class="{css_class}">{icon} {label}</p>',
         unsafe_allow_html=True,
     )
 
 with col_animal:
     st.markdown("**Última detección**")
     a = st.session_state.last_animal
+
     if a == "dog":
-        st.markdown('<span class="animal-badge dog-badge">🐕 Perro</span>', unsafe_allow_html=True)
+        st.markdown(
+            '<span class="animal-badge dog-badge">🐕 Perro</span>',
+            unsafe_allow_html=True,
+        )
     elif a == "cat":
-        st.markdown('<span class="animal-badge cat-badge">🐈 Gato</span>', unsafe_allow_html=True)
+        st.markdown(
+            '<span class="animal-badge cat-badge">🐈 Gato</span>',
+            unsafe_allow_html=True,
+        )
     else:
-        st.markdown('<span class="animal-badge none-badge">— Sin animal</span>', unsafe_allow_html=True)
+        st.markdown(
+            '<span class="animal-badge none-badge">— Sin animal</span>',
+            unsafe_allow_html=True,
+        )
 
 st.divider()
 
 # ─── Sección 1: Comandos de voz ────────────────────────────────────────────
 st.subheader("🎙️ Control por voz")
-st.caption('Di **"abre la puerta"** o **"cierra la puerta"**')
+st.caption('Di "abre la puerta" o "cierra la puerta"')
 
-# JavaScript Web Speech API
 voice_js = """
 new Promise((resolve) => {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) { resolve("ERROR: navegador sin soporte"); return; }
+  if (!SpeechRecognition) {
+    resolve("ERROR: navegador sin soporte");
+    return;
+  }
 
   const recognition = new SpeechRecognition();
   recognition.lang = 'es-ES';
@@ -237,7 +276,11 @@ new Promise((resolve) => {
   recognition.onresult = (e) => {
     resolve(e.results[0][0].transcript.toLowerCase());
   };
-  recognition.onerror = (e) => { resolve("ERROR: " + e.error); };
+
+  recognition.onerror = (e) => {
+    resolve("ERROR: " + e.error);
+  };
+
   recognition.start();
 })
 """
@@ -248,7 +291,7 @@ if st.button("🎤 Hablar", use_container_width=True):
 
     if transcript:
         st.session_state.voice_result = transcript
-        st.info(f"Escuché: *{transcript}*")
+        st.info(f"Escuché: {transcript}")
 
         if "abre" in transcript or "abrir" in transcript or "open" in transcript:
             resp = send_door_command("open")
@@ -268,7 +311,7 @@ if st.button("🎤 Hablar", use_container_width=True):
             else:
                 st.error(f"Error: {resp['error']}")
         else:
-            st.warning("No reconocí un comando válido. Intenta decir 'abre la puerta'.")
+            st.warning("No reconocí un comando válido.")
 
 st.divider()
 
@@ -300,7 +343,9 @@ st.divider()
 
 # ─── Sección 3: Detección de mascotas con cámara ──────────────────────────
 st.subheader("📷 Detección de mascotas con IA")
-st.caption("Toma una foto y la IA detecta si hay un gato o un perro → abre la puerta automáticamente")
+st.caption(
+    "Toma una foto y la IA detecta si hay un gato o un perro y abre la puerta automáticamente"
+)
 
 img_source = st.radio(
     "Fuente de imagen",
@@ -333,17 +378,21 @@ if image_bytes:
         st.session_state.last_animal = animal
 
         if animal == "dog":
-            st.success("🐕 **¡Perro detectado!** La puerta se abrirá y la matriz LED mostrará un perro.")
-            send_led_command("dog")
+            st.success("🐕 ¡Perro detectado!")
+            resp = send_led_command("dog")
+            if "error" in resp:
+                st.error(resp["error"])
             add_log("📷 IA → perro → LED + puerta abierta")
 
         elif animal == "cat":
-            st.success("🐈 **¡Gato detectado!** La puerta se abrirá y la matriz LED mostrará un gato.")
-            send_led_command("cat")
+            st.success("🐈 ¡Gato detectado!")
+            resp = send_led_command("cat")
+            if "error" in resp:
+                st.error(resp["error"])
             add_log("📷 IA → gato → LED + puerta abierta")
 
         else:
-            st.info("No se detectó ninguna mascota. La puerta permanece igual.")
+            st.info("No se detectó ninguna mascota.")
             add_log("📷 IA → sin mascota")
 
 st.divider()
@@ -356,14 +405,29 @@ if st.session_state.log:
 else:
     st.caption("Sin actividad aún.")
 
-# ─── Configuración (expander) ──────────────────────────────────────────────
+# ─── Configuración ─────────────────────────────────────────────────────────
 with st.expander("⚙️ Configuración del sistema"):
     new_url = st.text_input("URL del ESP32", value=ESP32_URL)
+
     if st.button("Guardar URL"):
-        ESP32_URL = new_url
+        ESP32_URL = new_url.strip()
         st.success("URL actualizada (solo esta sesión)")
 
-    st.caption(f"API key Anthropic: {'✅ configurada' if ANTHROPIC_KEY else '❌ falta en .env'}")
+    st.caption(
+        f"API key Anthropic: {'✅ configurada' if ANTHROPIC_KEY else '❌ falta en .env'}"
+    )
 
     if st.button("🔄 Actualizar estado"):
         st.rerun()
+```
+
+## Variable de entorno recomendada
+
+En tu archivo `.env` o en los secretos de Streamlit, define:
+
+```env
+ESP32_URL=https://TU-URL-DEL-TUNEL-DE-WOKWI
+ANTHROPIC_API_KEY=tu_api_key
+```
+
+⚠️ Importante: `ESP32_URL` **no debe terminar en `/status`**.
