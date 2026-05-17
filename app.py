@@ -166,20 +166,9 @@ def add_log(msg: str):
 # =========================================================
 # ESTADO ACTUAL
 # =========================================================
-col1, col2 = st.columns(2)
+col1 = st.columns(1)
 
 with col1:
-    st.subheader("Estado")
-
-    # Modificado para reflejar correctamente "abierta" o "cerrada"
-    if st.session_state.door_state == "abierta":
-        st.success("🔓 ABIERTA")
-    elif st.session_state.door_state == "cerrada":
-        st.error("🔒 CERRADA")
-    else:
-        st.warning("❓ DESCONOCIDO")
-
-with col2:
     st.subheader("Última detección")
 
     if st.session_state.last_animal == "dog":
