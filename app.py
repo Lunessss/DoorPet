@@ -166,17 +166,28 @@ def add_log(msg: str):
 # =========================================================
 # ESTADO ACTUAL
 # =========================================================
-col1 = st.columns(1)
+col1, col2 = st.columns(2)
+
+
 
 with col1:
-    st.subheader("Última detección")
 
+    st.subheader("Estado")
+    if st.session_state.door_state == "open":
+        st.success("🔓 ABIERTA")
+    else:
+        st.error("🔒 CERRADA")
+
+
+with col2:
+    st.subheader("Última detección")
     if st.session_state.last_animal == "dog":
         st.write("🐕 Perro")
     elif st.session_state.last_animal == "cat":
         st.write("🐈 Gato")
     else:
         st.write("— Sin animal")
+
 
 st.divider()
 
