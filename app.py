@@ -56,9 +56,29 @@ def send_led_command(animal: str) -> dict:
 def get_door_status() -> dict:
     try:
         r = requests.get(f"{ESP32_URL}/status", timeout=3)
-        return r.json()
+
+        # Verificar que la respuesta no esté vacía
+        if r.status_code == 200 and r.text.strip():
+            try:
+                return r.json()
+            except ValueError:
+                return {
+                    "door": "desconocido",
+                    "error": "La respuesta no es un JSON válido",
+                    "response": r.text
+                }
+        else:
+            return {
+                "door": "desconocido",
+                "error": f"Respuesta vacía o código {r.status_code}",
+                "response": r.text
+            }
+
     except Exception as e:
-        return {"door": "desconocido", "error": str(e)}
+        return {
+            "door": "desconocido",
+            "error": str(e)
+        }
 
 
 # ── IA: detección de mascota ───────────────────────────────────────────────
