@@ -4,13 +4,12 @@ Smart Door — Streamlit App
 Funciones:
   • Comandos de voz
   • Botones manuales
-  • Detección de gatos y perros con TensorFlow (sin API key)
+  • Detección de gatos y perros con TensorFlow
   • Control del ESP32/Wokwi
 """
 
 import os
 import io
-import base64
 import requests
 import numpy as np
 from PIL import Image
@@ -25,11 +24,23 @@ from tensorflow.keras.applications.mobilenet_v2 import (
 
 load_dotenv()
 
-# ── Configuración ──────────────────────────────────────────────────────────
-ESP32_URL = os.getenv("ESP32_URL", "https://wokwi.com/projects/464234961706424321")
+# ── CONFIGURACIÓN ────────────────────────────────────────────────────────
+# IMPORTANTE:
+# En Streamlit Secrets o en .env debes poner:
+# ESP32_URL=https://tu-subdominio.wokwi.app
+#
+# NO uses:
+# https://wokwi.com/projects/xxxxxxxx
+#
+DEFAULT_ESP32_URL = ""
+ESP32_URL = os.getenv("ESP32_URL", DEFAULT_ESP32_URL).rstrip("/")
 
 
-# ── Modelo de IA (gratis, local) ──────────────────────────────────────────
+def is_valid_wokwi_url(url: str) -> bool:
+    return url.startswith("https://") and ".wokwi.app" in url
+
+
+# ── MODELO DE IA ─────────────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
     return MobileNetV2(weights="imagenet")
@@ -38,69 +49,75 @@ def load_model():
 model = load_model()
 
 
-# ── Helper para parsear JSON de forma segura ───────────────────────────────
+# ── HELPERS ──────────────────────────────────────────────────────────────
 def safe_json_response(response: requests.Response) -> dict:
-    if response.status_code == 200 and response.text.strip():
-        try:
-            return response.json()
-        except ValueError:
-            return {
-                "error": "La respuesta no es un JSON válido",
-                "response": response.text,
-            }
-    else:
+    try:
+        return response.json()
+    except Exception:
         return {
-            "error": f"Respuesta vacía o código {response.status_code}",
+            "error": f"Respuesta inválida (HTTP {response.status_code})",
             "response": response.text,
         }
 
 
-# ── Comunicación con ESP32 ────────────────────────────────────────────────
+def check_configuration():
+    if not ESP32_URL:
+        st.error(
+            "❌ Falta configurar ESP32_URL en Secrets o .env.\n\n"
+            "Ejemplo:\n"
+            "ESP32_URL=https://abc123.wokwi.app"
+        )
+        st.stop()
+
+    if not is_valid_wokwi_url(ESP32_URL):
+        st.error(
+            "❌ ESP32_URL no es válida.\n\n"
+            "Debe verse así:\n"
+            "https://abc123.wokwi.app\n\n"
+            "No uses:\n"
+            "https://wokwi.com/projects/..."
+        )
+        st.stop()
+
+
+def request_json(method: str, path: str, **kwargs) -> dict:
+    try:
+        url = f"{ESP32_URL}{path}"
+        response = requests.request(method, url, timeout=10, **kwargs)
+        return safe_json_response(response)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── COMUNICACIÓN CON ESP32 ───────────────────────────────────────────────
 def send_door_command(action: str) -> dict:
-    try:
-        r = requests.post(
-            f"{ESP32_URL}/door",
-            json={"action": action},
-            timeout=5,
-        )
-        return safe_json_response(r)
-    except Exception as e:
-        return {"error": str(e)}
+    return request_json(
+        "POST",
+        "/door",
+        json={"action": action},
+    )
 
 
-
-def send_led_command(animal: str) -> dict:
-    try:
-        r = requests.post(
-            f"{ESP32_URL}/led",
-            json={"type": animal},
-            timeout=5,
-        )
-        return safe_json_response(r)
-    except Exception as e:
-        return {"error": str(e)}
-
+def send_detect_command(animal: str) -> dict:
+    # El ESP32 usa /detect, NO /led
+    return request_json(
+        "POST",
+        "/detect",
+        json={"animal": animal},
+    )
 
 
 def get_door_status() -> dict:
-    try:
-        r = requests.get(f"{ESP32_URL}/status", timeout=3)
-        data = safe_json_response(r)
-        if "error" in data and "door" not in data:
-            data["door"] = "desconocido"
-        return data
-    except Exception as e:
-        return {
-            "door": "desconocido",
-            "error": str(e),
-        }
+    data = request_json("GET", "/status")
+
+    if "door" not in data:
+        data["door"] = "desconocido"
+
+    return data
 
 
-# ── Detección de gatos y perros (sin API) ─────────────────────────────────
+# ── DETECCIÓN DE ANIMALES ────────────────────────────────────────────────
 def detect_animal(image_bytes: bytes) -> str:
-    """
-    Retorna: 'dog', 'cat' o 'none'
-    """
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img = img.resize((224, 224))
@@ -134,7 +151,7 @@ def detect_animal(image_bytes: bytes) -> str:
         return "none"
 
 
-# ── Streamlit UI ───────────────────────────────────────────────────────────
+# ── UI ───────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Puerta Inteligente",
     page_icon="🚪",
@@ -142,17 +159,19 @@ st.set_page_config(
 )
 
 st.title("🚪 Puerta Inteligente")
-st.caption("Control por voz · Detección de mascotas · Pixel art LED")
+st.caption("Control por voz · Detección de mascotas · ESP32 + Wokwi")
 
+check_configuration()
 
-# ── Estado de sesión ──────────────────────────────────────────────────────
+# ── SESSION STATE ────────────────────────────────────────────────────────
 if "door_state" not in st.session_state:
     st.session_state.door_state = "desconocido"
+
 if "last_animal" not in st.session_state:
     st.session_state.last_animal = "none"
+
 if "log" not in st.session_state:
     st.session_state.log = []
-
 
 
 def add_log(msg: str):
@@ -160,12 +179,12 @@ def add_log(msg: str):
     st.session_state.log = st.session_state.log[:10]
 
 
-# ── Estado actual ─────────────────────────────────────────────────────────
+# ── ESTADO ACTUAL ────────────────────────────────────────────────────────
 status = get_door_status()
 st.session_state.door_state = status.get("door", "desconocido")
 
 if "error" in status:
-    st.warning(f"⚠️ ESP32: {status['error']}")
+    st.warning(f"⚠️ {status['error']}")
 
 col1, col2 = st.columns(2)
 
@@ -180,23 +199,23 @@ with col1:
 
 with col2:
     st.subheader("Última detección")
-    animal = st.session_state.last_animal
-    if animal == "dog":
+    if st.session_state.last_animal == "dog":
         st.write("🐕 Perro")
-    elif animal == "cat":
+    elif st.session_state.last_animal == "cat":
         st.write("🐈 Gato")
     else:
         st.write("— Sin animal")
 
 st.divider()
 
-
-# ── Control por voz ───────────────────────────────────────────────────────
+# ── CONTROL POR VOZ ──────────────────────────────────────────────────────
 st.subheader("🎙️ Control por voz")
 
 voice_js = """
 new Promise((resolve) => {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
   if (!SpeechRecognition) {
     resolve('');
     return;
@@ -240,8 +259,7 @@ if st.button("🎤 Hablar", use_container_width=True):
 
 st.divider()
 
-
-# ── Botones manuales ──────────────────────────────────────────────────────
+# ── CONTROL MANUAL ───────────────────────────────────────────────────────
 st.subheader("🔘 Control manual")
 col_open, col_close = st.columns(2)
 
@@ -265,8 +283,7 @@ with col_close:
 
 st.divider()
 
-
-# ── Detección de mascotas ─────────────────────────────────────────────────
+# ── DETECCIÓN DE MASCOTAS ────────────────────────────────────────────────
 st.subheader("📷 Detección de mascotas")
 
 source = st.radio(
@@ -283,7 +300,10 @@ if source == "Cámara":
     if photo:
         image_bytes = photo.getvalue()
 else:
-    uploaded = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
+    uploaded = st.file_uploader(
+        "Sube una imagen",
+        type=["jpg", "jpeg", "png"]
+    )
     if uploaded:
         image_bytes = uploaded.read()
 
@@ -298,17 +318,19 @@ if image_bytes:
 
         if animal == "dog":
             st.success("🐕 Perro detectado")
-            resp = send_led_command("dog")
+            resp = send_detect_command("dog")
             if "error" in resp:
                 st.error(resp["error"])
-            add_log("📷 IA → perro")
+            else:
+                add_log("📷 IA → perro")
 
         elif animal == "cat":
             st.success("🐈 Gato detectado")
-            resp = send_led_command("cat")
+            resp = send_detect_command("cat")
             if "error" in resp:
                 st.error(resp["error"])
-            add_log("📷 IA → gato")
+            else:
+                add_log("📷 IA → gato")
 
         else:
             st.info("No se detectó un gato o perro")
@@ -316,8 +338,7 @@ if image_bytes:
 
 st.divider()
 
-
-# ── Registro ──────────────────────────────────────────────────────────────
+# ── REGISTRO ─────────────────────────────────────────────────────────────
 st.subheader("📋 Registro")
 
 if st.session_state.log:
@@ -326,11 +347,13 @@ if st.session_state.log:
 else:
     st.caption("Sin actividad aún")
 
-
-# ── Configuración ─────────────────────────────────────────────────────────
+# ── CONFIGURACIÓN ────────────────────────────────────────────────────────
 with st.expander("⚙️ Configuración"):
     st.text_input("URL del ESP32", value=ESP32_URL, disabled=True)
-    st.caption("Define ESP32_URL en el archivo .env o en Secrets de Streamlit.")
+    st.caption(
+        "Ejemplo correcto: https://abc123.wokwi.app\n"
+        "No uses la URL de https://wokwi.com/projects/..."
+    )
 
     if st.button("🔄 Actualizar estado"):
         st.rerun()
