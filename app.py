@@ -1,6 +1,3 @@
-# Smart Door — Streamlit App (Código corregido)
-
-```python
 """
 Smart Door — Streamlit App
 ==========================
