@@ -59,9 +59,9 @@ def on_message(client, userdata, msg):
 
     if msg.topic == TOPIC_STATUS:
         if payload == "abierta":
-            st.session_state.door_state = "open"
+            st.session_state.door_state = "abierta"
         elif payload == "cerrada":
-            st.session_state.door_state = "closed"
+            st.session_state.door_state = "cerrada"
 
     elif msg.topic == TOPIC_DETECTION:
         if payload in ("dog", "cat"):
@@ -112,22 +112,10 @@ def detect_animal(image_bytes: bytes) -> str:
         results = decode_predictions(preds, top=5)[0]
 
         dog_keywords = [
-            "dog",
-            "retriever",
-            "shepherd",
-            "poodle",
-            "terrier",
-            "beagle",
-            "husky",
-            "bulldog",
-            "chihuahua",
-            "pug",
-            "doberman",
-            "rottweiler",
-            "labrador",
-            "malamute",
-            "spaniel",
-            "wolfhound",
+            "dog", "retriever", "shepherd", "poodle", "terrier", 
+            "beagle", "husky", "bulldog", "chihuahua", "pug", 
+            "doberman", "rottweiler", "labrador", "malamute", 
+            "spaniel", "wolfhound"
         ]
 
         for _, label, _ in results:
@@ -183,10 +171,13 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("Estado")
 
-    if st.session_state.door_state == "open":
+    # Modificado para reflejar correctamente "abierta" o "cerrada"
+    if st.session_state.door_state == "abierta":
         st.success("🔓 ABIERTA")
-    else:
+    elif st.session_state.door_state == "cerrada":
         st.error("🔒 CERRADA")
+    else:
+        st.warning("❓ DESCONOCIDO")
 
 with col2:
     st.subheader("Última detección")
@@ -237,14 +228,12 @@ if st.button("🎤 Hablar", use_container_width=True):
 
         if "abre" in transcript:
             send_command("open")
-            st.success("Puerta abierta")
-            add_log("🎙️ Voz → abrir")
+            add_log("🎙️ Voz → comando abrir enviado")
             st.rerun()
 
         elif "cierra" in transcript:
             send_command("close")
-            st.success("Puerta cerrada")
-            add_log("🎙️ Voz → cerrar")
+            add_log("🎙️ Voz → comando cerrar enviado")
             st.rerun()
 
 st.divider()
