@@ -419,15 +419,3 @@ with st.expander("⚙️ Configuración del sistema"):
 
     if st.button("🔄 Actualizar estado"):
         st.rerun()
-```
-
-## Variable de entorno recomendada
-
-En tu archivo `.env` o en los secretos de Streamlit, define:
-
-```env
-ESP32_URL=https://TU-URL-DEL-TUNEL-DE-WOKWI
-ANTHROPIC_API_KEY=tu_api_key
-```
-
-⚠️ Importante: `ESP32_URL` **no debe terminar en `/status`**.
