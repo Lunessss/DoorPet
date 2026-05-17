@@ -26,7 +26,7 @@ from tensorflow.keras.applications.mobilenet_v2 import (
 load_dotenv()
 
 # ── Configuración ──────────────────────────────────────────────────────────
-ESP32_URL = os.getenv("ESP32_URL", "http://192.168.1.100")
+ESP32_URL = os.getenv("ESP32_URL", "https://wokwi.com/projects/464234961706424321")
 
 
 # ── Modelo de IA (gratis, local) ──────────────────────────────────────────
