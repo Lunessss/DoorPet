@@ -320,8 +320,11 @@ if image_bytes:
             st.rerun()
 
         else:
-            st.info("No se detectó un gato o perro")
-            add_log("📷 IA → none")
+            st.session_state.last_animal = "none"
+            send_command("close")
+            st.info("No se detectó un gato o perro. La puerta se cerró.")
+            add_log("📷 IA → none (cerrar puerta)")
+            st.rerun()
 
 st.divider()
 
