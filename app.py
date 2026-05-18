@@ -218,7 +218,7 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 # =========================================================
 # SESSION STATE
 # =========================================================
-for key, val in [("door_state","desconocido"), ("last_animal","none"), ("log",[]), ("voice_result","")]:
+for key, val in [("door_state","desconocido"), ("last_animal","none"), ("log",[])]:
     if key not in st.session_state:
         st.session_state[key] = val
 
@@ -271,11 +271,20 @@ st.divider()
 # =========================================================
 st.subheader("Control por voz")
 
-# Procesamos el resultado si ya hay uno guardado del ciclo anterior
-if st.session_state.voice_result:
-    t = st.session_state.voice_result.strip().lower()
-    st.session_state.voice_result = ""
+# ── Leer query param enviado por el iframe ──────────────────
+# El iframe no puede modificar session_state directamente.
+# La solucion: cuando el usuario habla, el iframe hace
+#   window.parent.location.href = "?voice=<texto>"
+# Streamlit recarga con ese query param, lo leemos aqui,
+# procesamos el comando y limpiamos el param.
+qp = st.query_params
+raw_voice = qp.get("voice", "")
 
+if raw_voice:
+    # Limpiar el param de la URL de inmediato
+    st.query_params.clear()
+
+    t = raw_voice.strip().lower()
     open_words  = ["open", "abre", "abrir", "abre la puerta"]
     close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
 
@@ -283,22 +292,23 @@ if st.session_state.voice_result:
         send_command("open")
         st.session_state.door_state = "abierta"
         add_log("Voz -> abrir (" + t + ")")
-        st.rerun()
     elif any(w in t for w in close_words):
         send_command("close")
         st.session_state.door_state = "cerrada"
         add_log("Voz -> cerrar (" + t + ")")
-        st.rerun()
     else:
         st.warning("No reconoci un comando en: " + t)
 
-# Componente HTML con boton de microfono propio
+# ── Componente HTML del microfono ───────────────────────────
+# Al reconocer la voz redirige la ventana padre a ?voice=<texto>
+# lo que dispara un rerun de Streamlit con el query param listo.
 voice_html = """
 <!DOCTYPE html>
 <html>
 <head>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'DM Sans', 'Segoe UI', sans-serif; }
+  * { box-sizing: border-box; margin: 0; padding: 0;
+      font-family: 'DM Sans', 'Segoe UI', sans-serif; }
   body { background: transparent; padding: 4px 0; }
 
   #mic-btn {
@@ -328,7 +338,6 @@ voice_html = """
     0%,100% { opacity: 1; }
     50%      { opacity: 0.65; }
   }
-
   #status {
     margin-top: 8px;
     font-size: 13px;
@@ -341,14 +350,12 @@ voice_html = """
 </style>
 </head>
 <body>
-
 <button id="mic-btn" onclick="startListening()">🎤 &nbsp;Hablar</button>
 <div id="status">Haz clic para hablar</div>
 
 <script>
 const btn    = document.getElementById('mic-btn');
 const status = document.getElementById('status');
-
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function startListening() {
@@ -357,13 +364,12 @@ function startListening() {
     status.className = 'error';
     return;
   }
-
   const r = new SR();
   r.lang = 'es-ES';
   r.interimResults = false;
   r.maxAlternatives = 1;
 
-  btn.textContent = '🔴  Escuchando...';
+  btn.innerHTML = '🔴 &nbsp;Escuchando...';
   btn.classList.add('listening');
   btn.disabled = true;
   status.textContent = 'Escuchando...';
@@ -373,8 +379,10 @@ function startListening() {
     const text = e.results[0][0].transcript;
     status.textContent = 'Escuche: ' + text;
     status.className = 'heard';
-    // Enviar a Streamlit via postMessage
-    window.parent.postMessage({ type: 'voice_result', text: text }, '*');
+    // Redirigir la ventana padre con el texto como query param
+    // Esto dispara un rerun de Streamlit con ?voice=<texto>
+    const encoded = encodeURIComponent(text);
+    window.parent.location.href = window.parent.location.pathname + '?voice=' + encoded;
   };
 
   r.onerror = (e) => {
@@ -384,7 +392,6 @@ function startListening() {
   };
 
   r.onend = () => { reset(); };
-
   r.start();
 }
 
@@ -398,56 +405,7 @@ function reset() {
 </html>
 """
 
-# Recibir postMessage de vuelta. st.components no puede recibir mensajes
-# directamente, usamos un segundo componente que lee sessionStorage
-# escrito por el padre. El flujo es:
-#   1. voice_html -> postMessage con el texto
-#   2. receiver_html escucha el mensaje, lo guarda en sessionStorage de la
-#      ventana padre (top) y luego Streamlit lo lee en el siguiente rerun
-#      via un st_javascript (o directamente del query param trick).
-#
-# La forma mas simple y confiable: el iframe escribe en window.parent
-# un atributo custom, y un segundo st_javascript lo lee.
-
-# Montamos el componente de voz (altura suficiente para el boton + status)
 components.html(voice_html, height=90, scrolling=False)
-
-# Leer el resultado del postMessage usando st_javascript en el padre
-from streamlit_javascript import st_javascript
-
-# Este JS escucha UNA VEZ el postMessage del iframe y guarda el texto
-# en window._voiceResult para que podamos leerlo
-receiver_js = """
-new Promise((resolve) => {
-  // Si ya hay un resultado pendiente lo devolvemos inmediatamente
-  if (window._voiceResult) {
-    var t = window._voiceResult;
-    window._voiceResult = null;
-    resolve(t);
-    return;
-  }
-  // Sino esperamos el mensaje del iframe (maximo 15 segundos)
-  var handler = function(e) {
-    if (e.data && e.data.type === 'voice_result') {
-      window.removeEventListener('message', handler);
-      window._voiceResult = null;
-      clearTimeout(timer);
-      resolve(e.data.text);
-    }
-  };
-  window.addEventListener('message', handler);
-  var timer = setTimeout(function() {
-    window.removeEventListener('message', handler);
-    resolve('');
-  }, 15000);
-})
-"""
-
-voice_text = st_javascript(receiver_js)
-
-if voice_text and isinstance(voice_text, str) and voice_text.strip():
-    st.session_state.voice_result = voice_text.strip()
-    st.rerun()
 
 st.divider()
 
