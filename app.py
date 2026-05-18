@@ -96,8 +96,8 @@ def detect_animal(image_bytes: bytes) -> str:
 # STREAMLIT CONFIG
 # =========================================================
 st.set_page_config(
-    page_title="Puerta Inteligente",
-    page_icon="🚪",
+    page_title="DoorPet",
+    page_icon="🐾",
     layout="centered",
 )
 
@@ -225,8 +225,8 @@ if voice_input and voice_input.strip():
 # =========================================================
 # HEADER
 # =========================================================
-st.title("Puerta Inteligente")
-st.caption("Control por voz · Botones · IA · MQTT")
+st.title("DoorPet🐾")
+st.caption("Control por voz · Botones · Cámara")
 st.markdown("<div style='margin-top:0.4rem'></div>", unsafe_allow_html=True)
 
 # =========================================================
