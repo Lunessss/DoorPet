@@ -1,6 +1,7 @@
 import io
 import uuid
 import time
+import json  # <-- Importado para empaquetar los comandos en formato JSON
 import numpy as np
 from PIL import Image
 import streamlit as st
@@ -59,8 +60,11 @@ def get_mqtt_client():
 
 mqtt_client = get_mqtt_client()
 
+# FUNCIÓN CORREGIDA: Ahora empaqueta el texto en el formato JSON que espera el ESP32
 def send_command(command: str):
-    result = mqtt_client.publish(TOPIC_COMMAND, command, retain=False)
+    # Creamos la estructura {"Act1": "comando"} usada en clase
+    json_payload = json.dumps({"Act1": command})
+    result = mqtt_client.publish(TOPIC_COMMAND, json_payload, retain=False)
     try:
         result.wait_for_publish()
     except Exception:
@@ -164,7 +168,7 @@ div[data-testid="stTextInput"][aria-label="voice_bridge"] {
 for key, val in [
     ("door_state",  "desconocido"),
     ("last_animal", "none"),
-    ("log",         []),
+    ("log",          []),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
@@ -177,21 +181,6 @@ def add_log(msg: str):
 
 # =========================================================
 # PUENTE DE VOZ
-#
-# Mecanismo:
-#   1. Un st.text_input oculto con key="voice_bridge" actúa
-#      como canal de comunicación JS → Python.
-#   2. El componente HTML del micrófono, al reconocer voz,
-#      localiza ese input en el DOM de Streamlit y le inyecta
-#      el texto + dispara los eventos 'input' y 'change'.
-#   3. Streamlit detecta el cambio en el input y hace rerun
-#      automáticamente — igual que si el usuario hubiera
-#      escrito algo.
-#   4. Python lee st.session_state.voice_bridge, procesa el
-#      comando y envía por MQTT.
-#
-# Este mecanismo funciona 100% local sin dependencias extras
-# y sin redirecciones de URL que el sandbox bloquearía.
 # =========================================================
 
 # Input invisible — Streamlit lo gestiona, el JS lo escribe
@@ -208,6 +197,7 @@ if voice_input and voice_input.strip():
     open_words  = ["open", "abre", "abrir", "abre la puerta"]
     close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
 
+    # Al ejecutar send_command, ahora se enviará automáticamente como JSON
     if any(w in t for w in open_words):
         send_command("open")
         st.session_state.door_state = "abierta"
@@ -308,13 +298,10 @@ voice_html = """
   const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   function injectVoiceText(text) {
-    // Busca el input oculto de Streamlit con label "voice_bridge"
-    // Streamlit renderiza inputs con data-testid="stTextInput"
     const inputs = window.parent.document.querySelectorAll('input[type="text"]');
     let target = null;
 
     for (const inp of inputs) {
-      // Identifica el input por su aria-label o por posición (es el primero oculto)
       const wrapper = inp.closest('div[data-testid="stTextInput"]');
       if (wrapper) {
         const label = wrapper.querySelector('label');
@@ -325,19 +312,16 @@ voice_html = """
       }
     }
 
-    // Fallback: usar el primer input de texto que encuentre
     if (!target && inputs.length > 0) {
       target = inputs[0];
     }
 
     if (target) {
-      // Inyecta el valor usando el setter nativo de React
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.parent.HTMLInputElement.prototype, 'value'
       ).set;
       nativeInputValueSetter.call(target, text);
 
-      // Dispara los eventos que Streamlit escucha
       target.dispatchEvent(new Event('input',  { bubbles: true }));
       target.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
@@ -367,7 +351,6 @@ voice_html = """
       const text = e.results[0][0].transcript;
       status.textContent = 'Escuché: ' + text;
       status.className = 'heard';
-      // ✅ Inyecta el texto en el input de Streamlit → dispara rerun
       injectVoiceText(text);
     };
 
