@@ -18,9 +18,9 @@ import paho.mqtt.client as mqtt
 MQTT_BROKER   = "broker.hivemq.com"
 MQTT_PORT     = 1883
 
-TOPIC_COMMAND   = "smartdoor/command"
-TOPIC_STATUS    = "smartdoor/status"
-TOPIC_DETECTION = "smartdoor/detection"
+TOPIC_COMMAND   = "DoorPet/command"
+TOPIC_STATUS    = "DoorPet/status"
+TOPIC_DETECTION = "DoorPet/detection"
 
 
 # =========================================================
@@ -49,7 +49,7 @@ def on_message(client, userdata, msg):
 
 @st.cache_resource
 def get_mqtt_client():
-    client = mqtt.Client(client_id="smartdoor-" + uuid.uuid4().hex[:8])
+    client = mqtt.Client(client_id="Sulusa" + uuid.uuid4().hex[:8])
     client.on_message = on_message
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
     client.subscribe(TOPIC_STATUS)
