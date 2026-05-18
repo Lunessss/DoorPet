@@ -34,7 +34,7 @@ model = load_model()
 
 
 # =========================================================
-# MQTT — callbacks
+# MQTT
 # =========================================================
 def on_message(client, userdata, msg):
     payload = msg.payload.decode("utf-8").strip().lower()
@@ -60,13 +60,12 @@ def get_mqtt_client():
 mqtt_client = get_mqtt_client()
 
 def send_command(command: str):
-    """Publica un comando MQTT y espera confirmacion real antes de continuar."""
     result = mqtt_client.publish(TOPIC_COMMAND, command, retain=False)
     try:
-        result.wait_for_publish()   # bloquea hasta que el broker confirma
+        result.wait_for_publish()
     except Exception:
         pass
-    time.sleep(0.3)                 # pequeña pausa adicional por seguridad
+    time.sleep(0.3)
 
 
 # =========================================================
@@ -77,7 +76,6 @@ def detect_animal(image_bytes: bytes) -> str:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
         x   = preprocess_input(np.expand_dims(np.array(img), axis=0))
         results = decode_predictions(model.predict(x, verbose=0), top=5)[0]
-
         dog_kw = [
             "dog","retriever","shepherd","poodle","terrier","beagle",
             "husky","bulldog","chihuahua","pug","doberman","rottweiler",
@@ -106,105 +104,56 @@ st.set_page_config(
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Serif+Display&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-    color: #1A1A1A;
-}
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; color: #1A1A1A; }
 .stApp { background-color: #F7F5F2; }
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding: 2.5rem 2rem 4rem 2rem; max-width: 680px; }
-
-h1 {
-    font-family: 'DM Serif Display', serif !important;
-    font-size: 2.1rem !important;
-    color: #1A1A1A !important;
-    letter-spacing: -0.5px;
-    margin-bottom: 0 !important;
-}
-h3 {
-    font-size: 0.7rem !important;
-    font-weight: 600 !important;
-    letter-spacing: 0.12em !important;
-    text-transform: uppercase !important;
-    color: #555555 !important;
-    margin-bottom: 0.75rem !important;
-}
-
+h1 { font-family: 'DM Serif Display', serif !important; font-size: 2.1rem !important;
+     color: #1A1A1A !important; letter-spacing: -0.5px; margin-bottom: 0 !important; }
+h3 { font-size: 0.7rem !important; font-weight: 600 !important;
+     letter-spacing: 0.12em !important; text-transform: uppercase !important;
+     color: #555555 !important; margin-bottom: 0.75rem !important; }
 .stCaption p { font-size: 0.85rem; color: #555555; margin-top: 2px; }
 hr { border: none; border-top: 1px solid #DEDAD5; margin: 1.6rem 0; }
-
-div[data-testid="stSuccess"],
-div[data-testid="stError"],
-div[data-testid="stInfo"],
-div[data-testid="stWarning"] {
-    border-radius: 12px !important;
-    border: none !important;
-    padding: 0.9rem 1.1rem !important;
-    font-size: 0.9rem !important;
-    font-weight: 500 !important;
-}
+div[data-testid="stSuccess"],div[data-testid="stError"],
+div[data-testid="stInfo"],div[data-testid="stWarning"] {
+    border-radius: 12px !important; border: none !important;
+    padding: 0.9rem 1.1rem !important; font-size: 0.9rem !important; font-weight: 500 !important; }
 div[data-testid="stSuccess"] { background-color: #D4EDDA !important; color: #1A4D26 !important; }
 div[data-testid="stError"]   { background-color: #FAD7D5 !important; color: #6B1512 !important; }
 div[data-testid="stInfo"]    { background-color: #D0E4F7 !important; color: #103A60 !important; }
 div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3D00 !important; }
-
 .stButton > button {
-    background-color: #FFFFFF !important;
-    color: #1A1A1A !important;
-    border: 1.5px solid #BFBAB4 !important;
-    border-radius: 12px !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-size: 0.875rem !important;
-    font-weight: 600 !important;
-    padding: 0.6rem 1.1rem !important;
-    transition: all 0.15s ease !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important;
-}
+    background-color: #FFFFFF !important; color: #1A1A1A !important;
+    border: 1.5px solid #BFBAB4 !important; border-radius: 12px !important;
+    font-family: 'DM Sans', sans-serif !important; font-size: 0.875rem !important;
+    font-weight: 600 !important; padding: 0.6rem 1.1rem !important;
+    transition: all 0.15s ease !important; box-shadow: 0 1px 3px rgba(0,0,0,0.06) !important; }
 .stButton > button:hover {
-    background-color: #EDEAE5 !important;
-    border-color: #9A9490 !important;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.10) !important;
-    transform: translateY(-1px) !important;
-}
-.stButton > button:active { transform: translateY(0) !important; }
-
-.btn-open .stButton > button {
-    background-color: #1E5C2A !important;
-    color: #FFFFFF !important;
-    border-color: #1E5C2A !important;
-}
+    background-color: #EDEAE5 !important; border-color: #9A9490 !important;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.10) !important; transform: translateY(-1px) !important; }
+.btn-open .stButton > button  { background-color: #1E5C2A !important; color: #FFFFFF !important; border-color: #1E5C2A !important; }
 .btn-open .stButton > button:hover { background-color: #174D23 !important; }
-
-.btn-close .stButton > button {
-    background-color: #A62B23 !important;
-    color: #FFFFFF !important;
-    border-color: #A62B23 !important;
-}
+.btn-close .stButton > button { background-color: #A62B23 !important; color: #FFFFFF !important; border-color: #A62B23 !important; }
 .btn-close .stButton > button:hover { background-color: #8C2420 !important; }
-
 .stRadio label p, .stRadio label span { color: #1A1A1A !important; font-size: 0.875rem !important; }
-.stFileUploader { border-radius: 12px !important; }
-[data-testid="stFileUploader"] label { color: #1A1A1A !important; font-weight: 500 !important; }
-.stCameraInput video, .stCameraInput canvas { border-radius: 12px !important; }
-[data-testid="stCameraInput"] label { color: #1A1A1A !important; font-weight: 500 !important; }
 .stImage img { border-radius: 12px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.10) !important; }
 .stExpander { border: 1.5px solid #DEDAD5 !important; border-radius: 14px !important; background: #FDFCFB !important; }
 .stExpander summary p { color: #1A1A1A !important; font-weight: 600 !important; }
-
-.state-card {
-    background: #FFFFFF;
-    border: 1.5px solid #DEDAD5;
-    border-radius: 14px;
-    padding: 0.85rem 1.1rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: #1A1A1A;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-}
+.state-card { background: #FFFFFF; border: 1.5px solid #DEDAD5; border-radius: 14px;
+    padding: 0.85rem 1.1rem; font-size: 0.95rem; font-weight: 600; color: #1A1A1A;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
 .state-card.open    { border-color: #5A9E6A; background: #EBF7EE; color: #1A4D26; }
 .state-card.closed  { border-color: #C47570; background: #FAEAEA; color: #6B1512; }
 .state-card.unknown { color: #555555; }
+/* Oculta el input de voz que usamos como puente — invisible pero funcional */
+div[data-testid="stTextInput"][aria-label="voice_bridge"] {
+    position: absolute !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -213,10 +162,9 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 # SESSION STATE
 # =========================================================
 for key, val in [
-    ("door_state", "desconocido"),
+    ("door_state",  "desconocido"),
     ("last_animal", "none"),
-    ("log", []),
-    ("pending_voice", ""),          # ← nuevo: comando de voz pendiente
+    ("log",         []),
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
@@ -228,32 +176,51 @@ def add_log(msg: str):
 
 
 # =========================================================
-# PROCESAR COMANDO DE VOZ
-# Leemos el query param ?voice=... que inyecta el puente JS.
-# Se hace ANTES de renderizar la UI para que el rerun posterior
-# ya tenga el estado actualizado.
+# PUENTE DE VOZ
+#
+# Mecanismo:
+#   1. Un st.text_input oculto con key="voice_bridge" actúa
+#      como canal de comunicación JS → Python.
+#   2. El componente HTML del micrófono, al reconocer voz,
+#      localiza ese input en el DOM de Streamlit y le inyecta
+#      el texto + dispara los eventos 'input' y 'change'.
+#   3. Streamlit detecta el cambio en el input y hace rerun
+#      automáticamente — igual que si el usuario hubiera
+#      escrito algo.
+#   4. Python lee st.session_state.voice_bridge, procesa el
+#      comando y envía por MQTT.
+#
+# Este mecanismo funciona 100% local sin dependencias extras
+# y sin redirecciones de URL que el sandbox bloquearía.
 # =========================================================
-qp = st.query_params
-raw_voice = qp.get("voice", "").strip()
 
-if raw_voice:
-    # Limpia el param de la URL inmediatamente
-    st.query_params.clear()
+# Input invisible — Streamlit lo gestiona, el JS lo escribe
+voice_input = st.text_input(
+    "voice_bridge",
+    key="voice_bridge",
+    label_visibility="hidden",
+)
 
-    t = raw_voice.lower()
+# Procesar comando de voz si hay texto nuevo en el input
+if voice_input and voice_input.strip():
+    t = voice_input.strip().lower()
+
     open_words  = ["open", "abre", "abrir", "abre la puerta"]
     close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
 
     if any(w in t for w in open_words):
-        send_command("open")                    # ← MQTT con wait_for_publish
+        send_command("open")
         st.session_state.door_state = "abierta"
         add_log(f"Voz → abrir ({t})")
     elif any(w in t for w in close_words):
-        send_command("close")                   # ← MQTT con wait_for_publish
+        send_command("close")
         st.session_state.door_state = "cerrada"
         add_log(f"Voz → cerrar ({t})")
     else:
-        st.session_state.pending_voice = f"No reconocí un comando en: {t}"
+        st.warning(f"No reconocí un comando en: \"{voice_input}\"")
+
+    # Limpiar el input para que no se reprocese en el próximo rerun
+    st.session_state.voice_bridge = ""
 
 
 # =========================================================
@@ -263,16 +230,10 @@ st.title("Puerta Inteligente")
 st.caption("Control por voz · Botones · IA · MQTT")
 st.markdown("<div style='margin-top:0.4rem'></div>", unsafe_allow_html=True)
 
-# Mostrar aviso de voz no reconocida (si aplica)
-if st.session_state.pending_voice:
-    st.warning(st.session_state.pending_voice)
-    st.session_state.pending_voice = ""
-
 # =========================================================
 # ESTADO ACTUAL
 # =========================================================
 col1, col2 = st.columns(2)
-
 with col1:
     st.subheader("Estado de la puerta")
     s = st.session_state.door_state
@@ -297,21 +258,9 @@ st.divider()
 
 # =========================================================
 # CONTROL POR VOZ
-#
-# CORRECCIÓN PRINCIPAL:
-#   Antes: el iframe hacía window.parent.location.href = "?voice=..."
-#          → recargaba la página ANTES de que MQTT publicara nada.
-#
-#   Ahora: el iframe hace postMessage({ type:'voice_command', text })
-#          → un segundo componente (height=0) escucha ese mensaje
-#            en el contexto padre y SOLO ENTONCES redirige con el
-#            query param, dando tiempo al flujo de Streamlit de
-#            ejecutar send_command() con wait_for_publish().
 # =========================================================
 st.subheader("Control por voz")
 
-# ── Componente del micrófono ────────────────────────────────
-# Al reconocer voz envía postMessage SIN recargar la página.
 voice_html = """
 <!DOCTYPE html>
 <html>
@@ -320,7 +269,6 @@ voice_html = """
   * { box-sizing: border-box; margin: 0; padding: 0;
       font-family: 'DM Sans', 'Segoe UI', sans-serif; }
   body { background: transparent; padding: 4px 0; }
-
   #mic-btn {
     width: 100%;
     padding: 10px 18px;
@@ -339,18 +287,13 @@ voice_html = """
   }
   #mic-btn:hover { background: #EDEAE5; border-color: #9A9490; }
   #mic-btn.listening {
-    background: #FAEAEA;
-    border-color: #C47570;
-    color: #6B1512;
+    background: #FAEAEA; border-color: #C47570; color: #6B1512;
     animation: pulse 1s infinite;
   }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
   #status {
-    margin-top: 8px;
-    font-size: 13px;
-    color: #555555;
-    min-height: 20px;
-    text-align: center;
+    margin-top: 8px; font-size: 13px; color: #555555;
+    min-height: 20px; text-align: center;
   }
   #status.heard { color: #1A4D26; font-weight: 600; }
   #status.error { color: #6B1512; }
@@ -359,78 +302,94 @@ voice_html = """
 <body>
 <button id="mic-btn" onclick="startListening()">🎤 &nbsp;Hablar</button>
 <div id="status">Haz clic para hablar</div>
-
 <script>
-const btn    = document.getElementById('mic-btn');
-const status = document.getElementById('status');
-const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const btn    = document.getElementById('mic-btn');
+  const status = document.getElementById('status');
+  const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-function startListening() {
-  if (!SR) {
-    status.textContent = 'Tu navegador no soporta reconocimiento de voz.';
-    status.className = 'error';
-    return;
+  function injectVoiceText(text) {
+    // Busca el input oculto de Streamlit con label "voice_bridge"
+    // Streamlit renderiza inputs con data-testid="stTextInput"
+    const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+    let target = null;
+
+    for (const inp of inputs) {
+      // Identifica el input por su aria-label o por posición (es el primero oculto)
+      const wrapper = inp.closest('div[data-testid="stTextInput"]');
+      if (wrapper) {
+        const label = wrapper.querySelector('label');
+        if (label && label.textContent.trim() === 'voice_bridge') {
+          target = inp;
+          break;
+        }
+      }
+    }
+
+    // Fallback: usar el primer input de texto que encuentre
+    if (!target && inputs.length > 0) {
+      target = inputs[0];
+    }
+
+    if (target) {
+      // Inyecta el valor usando el setter nativo de React
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.parent.HTMLInputElement.prototype, 'value'
+      ).set;
+      nativeInputValueSetter.call(target, text);
+
+      // Dispara los eventos que Streamlit escucha
+      target.dispatchEvent(new Event('input',  { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      status.textContent = 'Error: no se encontró el input de Streamlit';
+      status.className = 'error';
+    }
   }
-  const r = new SR();
-  r.lang = 'es-ES';
-  r.interimResults = false;
-  r.maxAlternatives = 1;
 
-  btn.innerHTML = '🔴 &nbsp;Escuchando...';
-  btn.classList.add('listening');
-  btn.disabled = true;
-  status.textContent = 'Escuchando...';
-  status.className = '';
+  function startListening() {
+    if (!SR) {
+      status.textContent = 'Tu navegador no soporta reconocimiento de voz.';
+      status.className = 'error';
+      return;
+    }
+    const r = new SR();
+    r.lang = 'es-ES';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
 
-  r.onresult = (e) => {
-    const text = e.results[0][0].transcript;
-    status.textContent = 'Escuché: ' + text;
-    status.className = 'heard';
+    btn.innerHTML = '🔴 &nbsp;Escuchando...';
+    btn.classList.add('listening');
+    btn.disabled = true;
+    status.textContent = 'Escuchando...';
+    status.className = '';
 
-    // ✅ CORRECCIÓN: postMessage en lugar de redirigir directamente.
-    // Así NO se recarga la página desde aquí; el puente de abajo
-    // (height=0) recibe el mensaje y hace la redirección controlada.
-    window.parent.postMessage({ type: 'voice_command', text: text }, '*');
-  };
+    r.onresult = (e) => {
+      const text = e.results[0][0].transcript;
+      status.textContent = 'Escuché: ' + text;
+      status.className = 'heard';
+      // ✅ Inyecta el texto en el input de Streamlit → dispara rerun
+      injectVoiceText(text);
+    };
 
-  r.onerror = (e) => {
-    status.textContent = 'Error: ' + e.error + '. Intenta de nuevo.';
-    status.className = 'error';
-    reset();
-  };
+    r.onerror = (e) => {
+      status.textContent = 'Error: ' + e.error + '. Intenta de nuevo.';
+      status.className = 'error';
+      reset();
+    };
+    r.onend = reset;
+    r.start();
+  }
 
-  r.onend = () => { reset(); };
-  r.start();
-}
-
-function reset() {
-  btn.innerHTML = '🎤 &nbsp;Hablar';
-  btn.classList.remove('listening');
-  btn.disabled = false;
-}
+  function reset() {
+    btn.innerHTML = '🎤 &nbsp;Hablar';
+    btn.classList.remove('listening');
+    btn.disabled = false;
+  }
 </script>
 </body>
 </html>
 """
 components.html(voice_html, height=90, scrolling=False)
-
-# ── Puente postMessage → query param ───────────────────────
-# Este componente invisible (height=0) vive en el contexto PADRE
-# de Streamlit. Escucha el postMessage del micrófono y SOLO
-# entonces redirige con ?voice=<texto>, disparando el rerun
-# de Streamlit que ya tiene a send_command() con wait_for_publish().
-bridge_html = """
-<script>
-window.addEventListener('message', function(e) {
-  if (e.data && e.data.type === 'voice_command') {
-    const encoded = encodeURIComponent(e.data.text);
-    window.top.location.href =
-      window.top.location.pathname + '?voice=' + encoded;
-  }
-}, false);
-</script>
-"""
-components.html(bridge_html, height=0, scrolling=False)
 
 st.divider()
 
@@ -442,24 +401,22 @@ st.subheader("Control manual")
 col_open, col_close = st.columns(2)
 
 with col_open:
-    with st.container():
-        st.markdown('<div class="btn-open">', unsafe_allow_html=True)
-        if st.button("🔓  Abrir puerta", use_container_width=True):
-            send_command("open")
-            st.session_state.door_state = "abierta"
-            add_log("Boton → abrir")
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="btn-open">', unsafe_allow_html=True)
+    if st.button("🔓  Abrir puerta", use_container_width=True):
+        send_command("open")
+        st.session_state.door_state = "abierta"
+        add_log("Boton → abrir")
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with col_close:
-    with st.container():
-        st.markdown('<div class="btn-close">', unsafe_allow_html=True)
-        if st.button("🔒  Cerrar puerta", use_container_width=True):
-            send_command("close")
-            st.session_state.door_state = "cerrada"
-            add_log("Boton → cerrar")
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="btn-close">', unsafe_allow_html=True)
+    if st.button("🔒  Cerrar puerta", use_container_width=True):
+        send_command("close")
+        st.session_state.door_state = "cerrada"
+        add_log("Boton → cerrar")
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.divider()
 
@@ -525,11 +482,8 @@ if st.session_state.log:
     for i, entry in enumerate(st.session_state.log):
         opacity = max(0.4, 1.0 - i * 0.07)
         st.markdown(
-            f"<p style='font-size:0.83rem;"
-            f"color:rgba(26,26,26,{opacity});"
-            f"padding:0.35rem 0;"
-            f"border-bottom:1px solid #DEDAD5;"
-            f"margin:0;'>{entry}</p>",
+            f"<p style='font-size:0.83rem;color:rgba(26,26,26,{opacity});"
+            f"padding:0.35rem 0;border-bottom:1px solid #DEDAD5;margin:0;'>{entry}</p>",
             unsafe_allow_html=True,
         )
 else:
@@ -539,7 +493,7 @@ else:
     )
 
 # =========================================================
-# CONFIGURACION MQTT (expander)
+# CONFIGURACION MQTT
 # =========================================================
 st.markdown("<div style='margin-top:1.5rem'></div>", unsafe_allow_html=True)
 
@@ -552,16 +506,13 @@ with st.expander("⚙️  Configuracion MQTT"):
         ("Topic deteccion", TOPIC_DETECTION),
     ]
     html_rows = "".join(
-        "<div style='margin-bottom:0.5rem;'>"
+        f"<div style='margin-bottom:0.5rem;'>"
         f"<span style='font-size:0.72rem;text-transform:uppercase;"
         f"letter-spacing:0.08em;color:#555555;font-weight:600;'>{label}</span>"
         f"<br><span style='color:#1A1A1A;font-size:0.88rem;'>{value}</span></div>"
         for label, value in rows
     )
-    st.markdown(
-        f"<div style='padding:0.2rem 0;'>{html_rows}</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"<div style='padding:0.2rem 0;'>{html_rows}</div>", unsafe_allow_html=True)
     st.markdown("<div style='margin-top:0.6rem'></div>", unsafe_allow_html=True)
     if st.button("🔄  Actualizar estado"):
         st.rerun()
