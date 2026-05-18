@@ -1,7 +1,6 @@
 import io
 import uuid
 import time
-import threading
 import numpy as np
 from PIL import Image
 import streamlit as st
@@ -12,8 +11,6 @@ from tensorflow.keras.applications.mobilenet_v2 import (
     decode_predictions,
 )
 import paho.mqtt.client as mqtt
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 
 # =========================================================
 # CONFIGURACION MQTT
@@ -25,6 +22,7 @@ TOPIC_COMMAND   = "smartdoor/command"
 TOPIC_STATUS    = "smartdoor/status"
 TOPIC_DETECTION = "smartdoor/detection"
 
+
 # =========================================================
 # MODELO DE IA
 # =========================================================
@@ -33,6 +31,7 @@ def load_model():
     return MobileNetV2(weights="imagenet")
 
 model = load_model()
+
 
 # =========================================================
 # MQTT
@@ -68,40 +67,6 @@ def send_command(command: str):
         pass
     time.sleep(0.3)
 
-# =========================================================
-# SERVIDOR FLASK LOCAL
-# El micrófono JS llama a http://localhost:5050/voice?cmd=open
-# Flask recibe la llamada, publica MQTT directamente.
-# No depende de reruns de Streamlit para nada.
-# =========================================================
-@st.cache_resource
-def start_flask():
-    app = Flask(__name__)
-    CORS(app)  # permite llamadas desde localhost:8501
-
-    @app.route("/voice")
-    def voice():
-        cmd = request.args.get("cmd", "").strip().lower()
-        open_words  = ["open", "abre", "abrir", "abre la puerta"]
-        close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
-
-        if any(w in cmd for w in open_words):
-            send_command("open")
-            return jsonify({"status": "ok", "action": "open"})
-        elif any(w in cmd for w in close_words):
-            send_command("close")
-            return jsonify({"status": "ok", "action": "close"})
-        else:
-            return jsonify({"status": "unknown", "cmd": cmd}), 400
-
-    t = threading.Thread(
-        target=lambda: app.run(port=5050, debug=False, use_reloader=False),
-        daemon=True,
-    )
-    t.start()
-    return True
-
-start_flask()
 
 # =========================================================
 # DETECCION DE ANIMALES
@@ -125,6 +90,7 @@ def detect_animal(image_bytes: bytes) -> str:
         return "none"
     except Exception:
         return "none"
+
 
 # =========================================================
 # STREAMLIT CONFIG
@@ -180,8 +146,17 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 .state-card.open    { border-color: #5A9E6A; background: #EBF7EE; color: #1A4D26; }
 .state-card.closed  { border-color: #C47570; background: #FAEAEA; color: #6B1512; }
 .state-card.unknown { color: #555555; }
+/* Oculta el input de voz que usamos como puente — invisible pero funcional */
+div[data-testid="stTextInput"][aria-label="voice_bridge"] {
+    position: absolute !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    height: 0 !important;
+    overflow: hidden !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
 
 # =========================================================
 # SESSION STATE
@@ -194,9 +169,59 @@ for key, val in [
     if key not in st.session_state:
         st.session_state[key] = val
 
+
 def add_log(msg: str):
     st.session_state.log.insert(0, msg)
     st.session_state.log = st.session_state.log[:10]
+
+
+# =========================================================
+# PUENTE DE VOZ
+#
+# Mecanismo:
+#   1. Un st.text_input oculto con key="voice_bridge" actúa
+#      como canal de comunicación JS → Python.
+#   2. El componente HTML del micrófono, al reconocer voz,
+#      localiza ese input en el DOM de Streamlit y le inyecta
+#      el texto + dispara los eventos 'input' y 'change'.
+#   3. Streamlit detecta el cambio en el input y hace rerun
+#      automáticamente — igual que si el usuario hubiera
+#      escrito algo.
+#   4. Python lee st.session_state.voice_bridge, procesa el
+#      comando y envía por MQTT.
+#
+# Este mecanismo funciona 100% local sin dependencias extras
+# y sin redirecciones de URL que el sandbox bloquearía.
+# =========================================================
+
+# Input invisible — Streamlit lo gestiona, el JS lo escribe
+voice_input = st.text_input(
+    "voice_bridge",
+    key="voice_bridge",
+    label_visibility="hidden",
+)
+
+# Procesar comando de voz si hay texto nuevo en el input
+if voice_input and voice_input.strip():
+    t = voice_input.strip().lower()
+
+    open_words  = ["open", "abre", "abrir", "abre la puerta"]
+    close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
+
+    if any(w in t for w in open_words):
+        send_command("open")
+        st.session_state.door_state = "abierta"
+        add_log(f"Voz → abrir ({t})")
+    elif any(w in t for w in close_words):
+        send_command("close")
+        st.session_state.door_state = "cerrada"
+        add_log(f"Voz → cerrar ({t})")
+    else:
+        st.warning(f"No reconocí un comando en: \"{voice_input}\"")
+
+    # Limpiar el input para que no se reprocese en el próximo rerun
+    st.session_state.voice_bridge = ""
+
 
 # =========================================================
 # HEADER
@@ -233,11 +258,6 @@ st.divider()
 
 # =========================================================
 # CONTROL POR VOZ
-#
-# SOLUCIÓN DEFINITIVA:
-#   El JS reconoce la voz y llama fetch("http://localhost:5050/voice?cmd=<texto>")
-#   Flask recibe la llamada en el mismo proceso Python y publica MQTT directamente.
-#   No depende de reruns, no manipula el DOM, no redirige URLs.
 # =========================================================
 st.subheader("Control por voz")
 
@@ -275,9 +295,8 @@ voice_html = """
     margin-top: 8px; font-size: 13px; color: #555555;
     min-height: 20px; text-align: center;
   }
-  #status.heard  { color: #1A4D26; font-weight: 600; }
-  #status.sent   { color: #103A60; font-weight: 600; }
-  #status.error  { color: #6B1512; }
+  #status.heard { color: #1A4D26; font-weight: 600; }
+  #status.error { color: #6B1512; }
 </style>
 </head>
 <body>
@@ -288,24 +307,43 @@ voice_html = """
   const status = document.getElementById('status');
   const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  function sendToFlask(text) {
-    const encoded = encodeURIComponent(text);
-    fetch('http://localhost:5050/voice?cmd=' + encoded)
-      .then(r => r.json())
-      .then(data => {
-        if (data.action === 'open') {
-          status.textContent = '✅ Puerta abierta';
-        } else if (data.action === 'close') {
-          status.textContent = '✅ Puerta cerrada';
-        } else {
-          status.textContent = '⚠️ Comando no reconocido: ' + text;
+  function injectVoiceText(text) {
+    // Busca el input oculto de Streamlit con label "voice_bridge"
+    // Streamlit renderiza inputs con data-testid="stTextInput"
+    const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+    let target = null;
+
+    for (const inp of inputs) {
+      // Identifica el input por su aria-label o por posición (es el primero oculto)
+      const wrapper = inp.closest('div[data-testid="stTextInput"]');
+      if (wrapper) {
+        const label = wrapper.querySelector('label');
+        if (label && label.textContent.trim() === 'voice_bridge') {
+          target = inp;
+          break;
         }
-        status.className = 'sent';
-      })
-      .catch(err => {
-        status.textContent = 'Error al conectar con el servidor local.';
-        status.className = 'error';
-      });
+      }
+    }
+
+    // Fallback: usar el primer input de texto que encuentre
+    if (!target && inputs.length > 0) {
+      target = inputs[0];
+    }
+
+    if (target) {
+      // Inyecta el valor usando el setter nativo de React
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.parent.HTMLInputElement.prototype, 'value'
+      ).set;
+      nativeInputValueSetter.call(target, text);
+
+      // Dispara los eventos que Streamlit escucha
+      target.dispatchEvent(new Event('input',  { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      status.textContent = 'Error: no se encontró el input de Streamlit';
+      status.className = 'error';
+    }
   }
 
   function startListening() {
@@ -329,8 +367,8 @@ voice_html = """
       const text = e.results[0][0].transcript;
       status.textContent = 'Escuché: ' + text;
       status.className = 'heard';
-      // ✅ Llama directamente al servidor Flask local → MQTT
-      sendToFlask(text);
+      // ✅ Inyecta el texto en el input de Streamlit → dispara rerun
+      injectVoiceText(text);
     };
 
     r.onerror = (e) => {
