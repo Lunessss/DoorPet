@@ -11,18 +11,14 @@ from tensorflow.keras.applications.mobilenet_v2 import (
     decode_predictions,
 )
 import paho.mqtt.client as mqtt
-from bokeh.models.widgets import Button
-from bokeh.models import CustomJS
-from streamlit_bokeh_events import streamlit_bokeh_events
-import json
 
 # =========================================================
 # CONFIGURACION MQTT
 # =========================================================
-MQTT_BROKER = "broker.mqttdashboard.com"
+MQTT_BROKER   = "broker.hivemq.com"
 MQTT_PORT     = 1883
 
-TOPIC_VOICE = "voice_ctrl"
+TOPIC_COMMAND   = "smartdoor/command"
 TOPIC_STATUS    = "smartdoor/status"
 TOPIC_DETECTION = "smartdoor/detection"
 
@@ -53,7 +49,7 @@ def on_message(client, userdata, msg):
 
 @st.cache_resource
 def get_mqtt_client():
-    client = mqtt.Client(client_id="Sulusa" + uuid.uuid4().hex[:8])
+    client = mqtt.Client(client_id="smartdoor-" + uuid.uuid4().hex[:8])
     client.on_message = on_message
     client.connect(MQTT_BROKER, MQTT_PORT, 60)
     client.subscribe(TOPIC_STATUS)
@@ -266,62 +262,135 @@ st.divider()
 st.subheader("Control por voz")
 
 voice_html = """
-<button onclick="startListening()" id="mic-btn" style="
-    padding:10px 20px; font-size:14px; font-weight:600;
-    border:1.5px solid #BFBAB4; border-radius:12px;
-    background:#fff; cursor:pointer; width:100%;">
-    🎤 Hablar
-</button>
-<div id="status" style="margin-top:8px;font-size:13px;color:#555;text-align:center;">
-    Haz clic para hablar
-</div>
-
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0;
+      font-family: 'DM Sans', 'Segoe UI', sans-serif; }
+  body { background: transparent; padding: 4px 0; }
+  #mic-btn {
+    width: 100%;
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1A1A1A;
+    background: #FFFFFF;
+    border: 1.5px solid #BFBAB4;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  #mic-btn:hover { background: #EDEAE5; border-color: #9A9490; }
+  #mic-btn.listening {
+    background: #FAEAEA; border-color: #C47570; color: #6B1512;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
+  #status {
+    margin-top: 8px; font-size: 13px; color: #555555;
+    min-height: 20px; text-align: center;
+  }
+  #status.heard { color: #1A4D26; font-weight: 600; }
+  #status.error { color: #6B1512; }
+</style>
+</head>
+<body>
+<button id="mic-btn" onclick="startListening()">🎤 &nbsp;Hablar</button>
+<div id="status">Haz clic para hablar</div>
 <script>
-function startListening() {
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-        document.getElementById('status').innerText = 'Tu navegador no soporta voz.';
-        return;
+  const btn    = document.getElementById('mic-btn');
+  const status = document.getElementById('status');
+  const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  function injectVoiceText(text) {
+    // Busca el input oculto de Streamlit con label "voice_bridge"
+    // Streamlit renderiza inputs con data-testid="stTextInput"
+    const inputs = window.parent.document.querySelectorAll('input[type="text"]');
+    let target = null;
+
+    for (const inp of inputs) {
+      // Identifica el input por su aria-label o por posición (es el primero oculto)
+      const wrapper = inp.closest('div[data-testid="stTextInput"]');
+      if (wrapper) {
+        const label = wrapper.querySelector('label');
+        if (label && label.textContent.trim() === 'voice_bridge') {
+          target = inp;
+          break;
+        }
+      }
     }
-    var r = new SR();
+
+    // Fallback: usar el primer input de texto que encuentre
+    if (!target && inputs.length > 0) {
+      target = inputs[0];
+    }
+
+    if (target) {
+      // Inyecta el valor usando el setter nativo de React
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.parent.HTMLInputElement.prototype, 'value'
+      ).set;
+      nativeInputValueSetter.call(target, text);
+
+      // Dispara los eventos que Streamlit escucha
+      target.dispatchEvent(new Event('input',  { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+    } else {
+      status.textContent = 'Error: no se encontró el input de Streamlit';
+      status.className = 'error';
+    }
+  }
+
+  function startListening() {
+    if (!SR) {
+      status.textContent = 'Tu navegador no soporta reconocimiento de voz.';
+      status.className = 'error';
+      return;
+    }
+    const r = new SR();
     r.lang = 'es-ES';
     r.interimResults = false;
+    r.maxAlternatives = 1;
 
-    document.getElementById('mic-btn').innerText = '🔴 Escuchando...';
-    document.getElementById('status').innerText = 'Escuchando...';
+    btn.innerHTML = '🔴 &nbsp;Escuchando...';
+    btn.classList.add('listening');
+    btn.disabled = true;
+    status.textContent = 'Escuchando...';
+    status.className = '';
 
-    r.onresult = function(e) {
-        var texto = e.results[0][0].transcript.toLowerCase();
-        document.getElementById('status').innerText = 'Escuché: ' + texto;
-
-        // Enviar por MQTT usando fetch al broker HTTP de HiveMQ
-        var comando = '';
-        if (texto.includes('abre') || texto.includes('abrir') || texto.includes('open')) {
-            comando = 'open';
-        } else if (texto.includes('cierra') || texto.includes('cerrar') || texto.includes('close')) {
-            comando = 'close';
-        }
-
-        if (comando) {
-            fetch('https://broker.hivemq.com:8884/mqtt', {
-                method: 'POST',
-                body: JSON.stringify({topic: 'smartdoor/command', payload: comando})
-            }).catch(()=>{});
-            document.getElementById('status').innerText = 'Comando enviado: ' + comando;
-        } else {
-            document.getElementById('status').innerText = 'No reconocí comando en: ' + texto;
-        }
+    r.onresult = (e) => {
+      const text = e.results[0][0].transcript;
+      status.textContent = 'Escuché: ' + text;
+      status.className = 'heard';
+      // ✅ Inyecta el texto en el input de Streamlit → dispara rerun
+      injectVoiceText(text);
     };
 
-    r.onend = function() {
-        document.getElementById('mic-btn').innerText = '🎤 Hablar';
+    r.onerror = (e) => {
+      status.textContent = 'Error: ' + e.error + '. Intenta de nuevo.';
+      status.className = 'error';
+      reset();
     };
-
+    r.onend = reset;
     r.start();
-}
+  }
+
+  function reset() {
+    btn.innerHTML = '🎤 &nbsp;Hablar';
+    btn.classList.remove('listening');
+    btn.disabled = false;
+  }
 </script>
+</body>
+</html>
 """
-components.html(voice_html, height=100, scrolling=False)
+components.html(voice_html, height=90, scrolling=False)
+
 st.divider()
 
 # =========================================================
