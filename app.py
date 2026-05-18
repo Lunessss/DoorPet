@@ -4,7 +4,7 @@ import time
 import numpy as np
 from PIL import Image
 import streamlit as st
-import streamlit.components.v1 as components
+import speech_recognition as sr
 from tensorflow.keras.applications.mobilenet_v2 import (
     MobileNetV2,
     preprocess_input,
@@ -22,7 +22,6 @@ TOPIC_COMMAND   = "smartdoor/command"
 TOPIC_STATUS    = "smartdoor/status"
 TOPIC_DETECTION = "smartdoor/detection"
 
-
 # =========================================================
 # MODELO DE IA
 # =========================================================
@@ -32,9 +31,29 @@ def load_model():
 
 model = load_model()
 
+def detect_animal(img_bytes):
+    try:
+        img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
+        img = img.resize((224, 224))
+        x = np.array(img)
+        x = np.expand_dims(x, axis=0)
+        x = preprocess_input(x)
+        preds = model.predict(x)
+        decoded = decode_predictions(preds, top=3)[0]
+        
+        for _, label, _ in decoded:
+            label = label.lower()
+            if "dog" in label or "terrier" in label or "retriever" in label or "puppy" in label:
+                return "dog"
+            if "cat" in label or "tabby" in label or "egyptian_cat" in label or "kitten" in label:
+                return "cat"
+        return "none"
+    except Exception as e:
+        st.error(f"Error en IA: {e}")
+        return "none"
 
 # =========================================================
-# MQTT
+# CLUSTER MQTT DE MONITOREO
 # =========================================================
 def on_message(client, userdata, msg):
     payload = msg.payload.decode("utf-8").strip().lower()
@@ -67,33 +86,8 @@ def send_command(command: str):
         pass
     time.sleep(0.3)
 
-
 # =========================================================
-# DETECCION DE ANIMALES
-# =========================================================
-def detect_animal(image_bytes: bytes) -> str:
-    try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
-        x   = preprocess_input(np.expand_dims(np.array(img), axis=0))
-        results = decode_predictions(model.predict(x, verbose=0), top=5)[0]
-        dog_kw = [
-            "dog","retriever","shepherd","poodle","terrier","beagle",
-            "husky","bulldog","chihuahua","pug","doberman","rottweiler",
-            "labrador","malamute","spaniel","wolfhound",
-        ]
-        for _, label, _ in results:
-            label = label.lower()
-            if "cat" in label:
-                return "cat"
-            if any(w in label for w in dog_kw):
-                return "dog"
-        return "none"
-    except Exception:
-        return "none"
-
-
-# =========================================================
-# STREAMLIT CONFIG
+# STREAMLIT CONFIG & ESTILOS
 # =========================================================
 st.set_page_config(
     page_title="Puerta Inteligente",
@@ -121,7 +115,7 @@ div[data-testid="stInfo"],div[data-testid="stWarning"] {
     padding: 0.9rem 1.1rem !important; font-size: 0.9rem !important; font-weight: 500 !important; }
 div[data-testid="stSuccess"] { background-color: #D4EDDA !important; color: #1A4D26 !important; }
 div[data-testid="stError"]   { background-color: #FAD7D5 !important; color: #6B1512 !important; }
-div[data-testid="stInfo"]    { background-color: #D0E4F7 !important; color: #103A60 !important; }
+div[data-testid="stInfo"]     { background-color: #D0E4F7 !important; color: #103A60 !important; }
 div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3D00 !important; }
 .stButton > button {
     background-color: #FFFFFF !important; color: #1A1A1A !important;
@@ -146,17 +140,8 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 .state-card.open    { border-color: #5A9E6A; background: #EBF7EE; color: #1A4D26; }
 .state-card.closed  { border-color: #C47570; background: #FAEAEA; color: #6B1512; }
 .state-card.unknown { color: #555555; }
-/* Oculta el input de voz que usamos como puente — invisible pero funcional */
-div[data-testid="stTextInput"][aria-label="voice_bridge"] {
-    position: absolute !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    height: 0 !important;
-    overflow: hidden !important;
-}
 </style>
 """, unsafe_allow_html=True)
-
 
 # =========================================================
 # SESSION STATE
@@ -164,64 +149,14 @@ div[data-testid="stTextInput"][aria-label="voice_bridge"] {
 for key, val in [
     ("door_state",  "desconocido"),
     ("last_animal", "none"),
-    ("log",         []),
+    ("log",         [])
 ]:
     if key not in st.session_state:
         st.session_state[key] = val
 
-
 def add_log(msg: str):
     st.session_state.log.insert(0, msg)
     st.session_state.log = st.session_state.log[:10]
-
-
-# =========================================================
-# PUENTE DE VOZ
-#
-# Mecanismo:
-#   1. Un st.text_input oculto con key="voice_bridge" actúa
-#      como canal de comunicación JS → Python.
-#   2. El componente HTML del micrófono, al reconocer voz,
-#      localiza ese input en el DOM de Streamlit y le inyecta
-#      el texto + dispara los eventos 'input' y 'change'.
-#   3. Streamlit detecta el cambio en el input y hace rerun
-#      automáticamente — igual que si el usuario hubiera
-#      escrito algo.
-#   4. Python lee st.session_state.voice_bridge, procesa el
-#      comando y envía por MQTT.
-#
-# Este mecanismo funciona 100% local sin dependencias extras
-# y sin redirecciones de URL que el sandbox bloquearía.
-# =========================================================
-
-# Input invisible — Streamlit lo gestiona, el JS lo escribe
-voice_input = st.text_input(
-    "voice_bridge",
-    key="voice_bridge",
-    label_visibility="hidden",
-)
-
-# Procesar comando de voz si hay texto nuevo en el input
-if voice_input and voice_input.strip():
-    t = voice_input.strip().lower()
-
-    open_words  = ["open", "abre", "abrir", "abre la puerta"]
-    close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
-
-    if any(w in t for w in open_words):
-        send_command("open")
-        st.session_state.door_state = "abierta"
-        add_log(f"Voz → abrir ({t})")
-    elif any(w in t for w in close_words):
-        send_command("close")
-        st.session_state.door_state = "cerrada"
-        add_log(f"Voz → cerrar ({t})")
-    else:
-        st.warning(f"No reconocí un comando en: \"{voice_input}\"")
-
-    # Limpiar el input para que no se reprocese en el próximo rerun
-    st.session_state.voice_bridge = ""
-
 
 # =========================================================
 # HEADER
@@ -257,139 +192,48 @@ with col2:
 st.divider()
 
 # =========================================================
-# CONTROL POR VOZ
+# CONTROL POR VOZ (PROCESAMIENTO PYTHON NATIVO)
 # =========================================================
 st.subheader("Control por voz")
+st.write("Presiona el botón para empezar a escuchar a través del micrófono de tu equipo.")
 
-voice_html = """
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0;
-      font-family: 'DM Sans', 'Segoe UI', sans-serif; }
-  body { background: transparent; padding: 4px 0; }
-  #mic-btn {
-    width: 100%;
-    padding: 10px 18px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #1A1A1A;
-    background: #FFFFFF;
-    border: 1.5px solid #BFBAB4;
-    border-radius: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-  }
-  #mic-btn:hover { background: #EDEAE5; border-color: #9A9490; }
-  #mic-btn.listening {
-    background: #FAEAEA; border-color: #C47570; color: #6B1512;
-    animation: pulse 1s infinite;
-  }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
-  #status {
-    margin-top: 8px; font-size: 13px; color: #555555;
-    min-height: 20px; text-align: center;
-  }
-  #status.heard { color: #1A4D26; font-weight: 600; }
-  #status.error { color: #6B1512; }
-</style>
-</head>
-<body>
-<button id="mic-btn" onclick="startListening()">🎤 &nbsp;Hablar</button>
-<div id="status">Haz clic para hablar</div>
-<script>
-  const btn    = document.getElementById('mic-btn');
-  const status = document.getElementById('status');
-  const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
+if st.button("🎤 Activar Micrófono", use_container_width=True):
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source_mic:
+        st.info("Escuchando... Habla ahora (Tienes 4 segundos)")
+        try:
+            # Captura el audio del micrófono físico directamente desde Python
+            audio_data = recognizer.listen(source_mic, timeout=4, phrase_time_limit=4)
+            st.spinner("Procesando comando de voz...")
+            
+            # Convierte el audio a texto usando la API gratuita de Google integrada
+            text_command = recognizer.recognize_google(audio_data, language="es-ES")
+            st.success(f'Escuché: "{text_command}"')
+            
+            t = text_command.strip().lower()
+            open_words  = ["open", "abre", "abrir", "puerta abierta", "abre la puerta"]
+            close_words = ["close", "cierra", "cerrar", "puerta cerrada", "cierra la puerta"]
 
-  function injectVoiceText(text) {
-    // Busca el input oculto de Streamlit con label "voice_bridge"
-    // Streamlit renderiza inputs con data-testid="stTextInput"
-    const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-    let target = null;
-
-    for (const inp of inputs) {
-      // Identifica el input por su aria-label o por posición (es el primero oculto)
-      const wrapper = inp.closest('div[data-testid="stTextInput"]');
-      if (wrapper) {
-        const label = wrapper.querySelector('label');
-        if (label && label.textContent.trim() === 'voice_bridge') {
-          target = inp;
-          break;
-        }
-      }
-    }
-
-    // Fallback: usar el primer input de texto que encuentre
-    if (!target && inputs.length > 0) {
-      target = inputs[0];
-    }
-
-    if (target) {
-      // Inyecta el valor usando el setter nativo de React
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        window.parent.HTMLInputElement.prototype, 'value'
-      ).set;
-      nativeInputValueSetter.call(target, text);
-
-      // Dispara los eventos que Streamlit escucha
-      target.dispatchEvent(new Event('input',  { bubbles: true }));
-      target.dispatchEvent(new Event('change', { bubbles: true }));
-    } else {
-      status.textContent = 'Error: no se encontró el input de Streamlit';
-      status.className = 'error';
-    }
-  }
-
-  function startListening() {
-    if (!SR) {
-      status.textContent = 'Tu navegador no soporta reconocimiento de voz.';
-      status.className = 'error';
-      return;
-    }
-    const r = new SR();
-    r.lang = 'es-ES';
-    r.interimResults = false;
-    r.maxAlternatives = 1;
-
-    btn.innerHTML = '🔴 &nbsp;Escuchando...';
-    btn.classList.add('listening');
-    btn.disabled = true;
-    status.textContent = 'Escuchando...';
-    status.className = '';
-
-    r.onresult = (e) => {
-      const text = e.results[0][0].transcript;
-      status.textContent = 'Escuché: ' + text;
-      status.className = 'heard';
-      // ✅ Inyecta el texto en el input de Streamlit → dispara rerun
-      injectVoiceText(text);
-    };
-
-    r.onerror = (e) => {
-      status.textContent = 'Error: ' + e.error + '. Intenta de nuevo.';
-      status.className = 'error';
-      reset();
-    };
-    r.onend = reset;
-    r.start();
-  }
-
-  function reset() {
-    btn.innerHTML = '🎤 &nbsp;Hablar';
-    btn.classList.remove('listening');
-    btn.disabled = false;
-  }
-</script>
-</body>
-</html>
-"""
-components.html(voice_html, height=90, scrolling=False)
+            if any(w in t for w in open_words):
+                send_command("open")
+                st.session_state.door_state = "abierta"
+                add_log("Voz -> abrir: " + t)
+                st.rerun()
+            elif any(w in t for w in close_words):
+                send_command("close")
+                st.session_state.door_state = "cerrada"
+                add_log("Voz -> cerrar: " + t)
+                st.rerun()
+            else:
+                st.warning("Comando no reconocido. Prueba diciendo 'abrir' o 'cerrar'.")
+                add_log("Voz no entendida: " + t)
+                
+        except sr.WaitTimeoutError:
+            st.error("No se detectó ninguna voz. Inténtalo de nuevo.")
+        except sr.UnknownValueError:
+            st.error("No logré entender el audio con claridad.")
+        except Exception as e:
+            st.error(f"Error con el micrófono: {e}")
 
 st.divider()
 
