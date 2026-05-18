@@ -195,11 +195,10 @@ def add_log(msg: str):
 # =========================================================
 
 # Input invisible — Streamlit lo gestiona, el JS lo escribe
-voice_input = st.text_input(
-    "voice_bridge",
-    key="voice_bridge",
-    label_visibility="hidden",
-)
+if "voice_bridge" not in st.session_state:
+    st.session_state.voice_bridge = ""
+
+voice_input = st.session_state.get("voice_bridge", "")
 
 # Procesar comando de voz si hay texto nuevo en el input
 if voice_input and voice_input.strip():
