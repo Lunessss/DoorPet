@@ -15,11 +15,11 @@ import paho.mqtt.client as mqtt
 # =========================================================
 # CONFIGURACION MQTT
 # =========================================================
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
+MQTT_BROKER   = "broker.hivemq.com"
+MQTT_PORT     = 1883
 
-TOPIC_COMMAND = "smartdoor/command"
-TOPIC_STATUS  = "smartdoor/status"
+TOPIC_COMMAND   = "smartdoor/command"
+TOPIC_STATUS    = "smartdoor/status"
 TOPIC_DETECTION = "smartdoor/detection"
 
 
@@ -34,7 +34,7 @@ model = load_model()
 
 
 # =========================================================
-# MQTT
+# MQTT — callbacks
 # =========================================================
 def on_message(client, userdata, msg):
     payload = msg.payload.decode("utf-8").strip().lower()
@@ -59,22 +59,30 @@ def get_mqtt_client():
 
 mqtt_client = get_mqtt_client()
 
-def send_command(command):
-    mqtt_client.publish(TOPIC_COMMAND, command, retain=False)
-    time.sleep(0.4)
+def send_command(command: str):
+    """Publica un comando MQTT y espera confirmacion real antes de continuar."""
+    result = mqtt_client.publish(TOPIC_COMMAND, command, retain=False)
+    try:
+        result.wait_for_publish()   # bloquea hasta que el broker confirma
+    except Exception:
+        pass
+    time.sleep(0.3)                 # pequeña pausa adicional por seguridad
 
 
 # =========================================================
 # DETECCION DE ANIMALES
 # =========================================================
-def detect_animal(image_bytes):
+def detect_animal(image_bytes: bytes) -> str:
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
-        x = preprocess_input(np.expand_dims(np.array(img), axis=0))
+        x   = preprocess_input(np.expand_dims(np.array(img), axis=0))
         results = decode_predictions(model.predict(x, verbose=0), top=5)[0]
-        dog_kw = ["dog","retriever","shepherd","poodle","terrier","beagle",
-                  "husky","bulldog","chihuahua","pug","doberman","rottweiler",
-                  "labrador","malamute","spaniel","wolfhound"]
+
+        dog_kw = [
+            "dog","retriever","shepherd","poodle","terrier","beagle",
+            "husky","bulldog","chihuahua","pug","doberman","rottweiler",
+            "labrador","malamute","spaniel","wolfhound",
+        ]
         for _, label, _ in results:
             label = label.lower()
             if "cat" in label:
@@ -89,7 +97,11 @@ def detect_animal(image_bytes):
 # =========================================================
 # STREAMLIT CONFIG
 # =========================================================
-st.set_page_config(page_title="Puerta Inteligente", page_icon="🚪", layout="centered")
+st.set_page_config(
+    page_title="Puerta Inteligente",
+    page_icon="🚪",
+    layout="centered",
+)
 
 st.markdown("""
 <style>
@@ -103,7 +115,6 @@ html, body, [class*="css"] {
 #MainMenu, footer, header { visibility: hidden; }
 .block-container { padding: 2.5rem 2rem 4rem 2rem; max-width: 680px; }
 
-/* Titulos */
 h1 {
     font-family: 'DM Serif Display', serif !important;
     font-size: 2.1rem !important;
@@ -120,13 +131,9 @@ h3 {
     margin-bottom: 0.75rem !important;
 }
 
-/* Caption */
 .stCaption p { font-size: 0.85rem; color: #555555; margin-top: 2px; }
-
-/* Divider */
 hr { border: none; border-top: 1px solid #DEDAD5; margin: 1.6rem 0; }
 
-/* Alerts */
 div[data-testid="stSuccess"],
 div[data-testid="stError"],
 div[data-testid="stInfo"],
@@ -142,7 +149,6 @@ div[data-testid="stError"]   { background-color: #FAD7D5 !important; color: #6B1
 div[data-testid="stInfo"]    { background-color: #D0E4F7 !important; color: #103A60 !important; }
 div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3D00 !important; }
 
-/* Botones generales */
 .stButton > button {
     background-color: #FFFFFF !important;
     color: #1A1A1A !important;
@@ -163,7 +169,6 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 }
 .stButton > button:active { transform: translateY(0) !important; }
 
-/* Boton abrir */
 .btn-open .stButton > button {
     background-color: #1E5C2A !important;
     color: #FFFFFF !important;
@@ -171,7 +176,6 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 }
 .btn-open .stButton > button:hover { background-color: #174D23 !important; }
 
-/* Boton cerrar */
 .btn-close .stButton > button {
     background-color: #A62B23 !important;
     color: #FFFFFF !important;
@@ -179,25 +183,15 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 }
 .btn-close .stButton > button:hover { background-color: #8C2420 !important; }
 
-/* Radio */
 .stRadio label p, .stRadio label span { color: #1A1A1A !important; font-size: 0.875rem !important; }
-
-/* File uploader */
 .stFileUploader { border-radius: 12px !important; }
 [data-testid="stFileUploader"] label { color: #1A1A1A !important; font-weight: 500 !important; }
-
-/* Camera */
 .stCameraInput video, .stCameraInput canvas { border-radius: 12px !important; }
 [data-testid="stCameraInput"] label { color: #1A1A1A !important; font-weight: 500 !important; }
-
-/* Imagen */
 .stImage img { border-radius: 12px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.10) !important; }
-
-/* Expander */
 .stExpander { border: 1.5px solid #DEDAD5 !important; border-radius: 14px !important; background: #FDFCFB !important; }
 .stExpander summary p { color: #1A1A1A !important; font-weight: 600 !important; }
 
-/* Tarjeta estado */
 .state-card {
     background: #FFFFFF;
     border: 1.5px solid #DEDAD5;
@@ -208,8 +202,8 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
     color: #1A1A1A;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
-.state-card.open  { border-color: #5A9E6A; background: #EBF7EE; color: #1A4D26; }
-.state-card.closed { border-color: #C47570; background: #FAEAEA; color: #6B1512; }
+.state-card.open    { border-color: #5A9E6A; background: #EBF7EE; color: #1A4D26; }
+.state-card.closed  { border-color: #C47570; background: #FAEAEA; color: #6B1512; }
 .state-card.unknown { color: #555555; }
 </style>
 """, unsafe_allow_html=True)
@@ -218,14 +212,48 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 # =========================================================
 # SESSION STATE
 # =========================================================
-for key, val in [("door_state","desconocido"), ("last_animal","none"), ("log",[])]:
+for key, val in [
+    ("door_state", "desconocido"),
+    ("last_animal", "none"),
+    ("log", []),
+    ("pending_voice", ""),          # ← nuevo: comando de voz pendiente
+]:
     if key not in st.session_state:
         st.session_state[key] = val
 
 
-def add_log(msg):
+def add_log(msg: str):
     st.session_state.log.insert(0, msg)
     st.session_state.log = st.session_state.log[:10]
+
+
+# =========================================================
+# PROCESAR COMANDO DE VOZ
+# Leemos el query param ?voice=... que inyecta el puente JS.
+# Se hace ANTES de renderizar la UI para que el rerun posterior
+# ya tenga el estado actualizado.
+# =========================================================
+qp = st.query_params
+raw_voice = qp.get("voice", "").strip()
+
+if raw_voice:
+    # Limpia el param de la URL inmediatamente
+    st.query_params.clear()
+
+    t = raw_voice.lower()
+    open_words  = ["open", "abre", "abrir", "abre la puerta"]
+    close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
+
+    if any(w in t for w in open_words):
+        send_command("open")                    # ← MQTT con wait_for_publish
+        st.session_state.door_state = "abierta"
+        add_log(f"Voz → abrir ({t})")
+    elif any(w in t for w in close_words):
+        send_command("close")                   # ← MQTT con wait_for_publish
+        st.session_state.door_state = "cerrada"
+        add_log(f"Voz → cerrar ({t})")
+    else:
+        st.session_state.pending_voice = f"No reconocí un comando en: {t}"
 
 
 # =========================================================
@@ -234,6 +262,11 @@ def add_log(msg):
 st.title("Puerta Inteligente")
 st.caption("Control por voz · Botones · IA · MQTT")
 st.markdown("<div style='margin-top:0.4rem'></div>", unsafe_allow_html=True)
+
+# Mostrar aviso de voz no reconocida (si aplica)
+if st.session_state.pending_voice:
+    st.warning(st.session_state.pending_voice)
+    st.session_state.pending_voice = ""
 
 # =========================================================
 # ESTADO ACTUAL
@@ -264,44 +297,21 @@ st.divider()
 
 # =========================================================
 # CONTROL POR VOZ
-# Solucion definitiva: componente HTML embebido con su propio
-# boton. Al detectar la voz llama a window.parent.postMessage
-# para pasar el texto a Streamlit, que lo recibe via
-# st.session_state y procesa el comando.
+#
+# CORRECCIÓN PRINCIPAL:
+#   Antes: el iframe hacía window.parent.location.href = "?voice=..."
+#          → recargaba la página ANTES de que MQTT publicara nada.
+#
+#   Ahora: el iframe hace postMessage({ type:'voice_command', text })
+#          → un segundo componente (height=0) escucha ese mensaje
+#            en el contexto padre y SOLO ENTONCES redirige con el
+#            query param, dando tiempo al flujo de Streamlit de
+#            ejecutar send_command() con wait_for_publish().
 # =========================================================
 st.subheader("Control por voz")
 
-# ── Leer query param enviado por el iframe ──────────────────
-# El iframe no puede modificar session_state directamente.
-# La solucion: cuando el usuario habla, el iframe hace
-#   window.parent.location.href = "?voice=<texto>"
-# Streamlit recarga con ese query param, lo leemos aqui,
-# procesamos el comando y limpiamos el param.
-qp = st.query_params
-raw_voice = qp.get("voice", "")
-
-if raw_voice:
-    # Limpiar el param de la URL de inmediato
-    st.query_params.clear()
-
-    t = raw_voice.strip().lower()
-    open_words  = ["open", "abre", "abrir", "abre la puerta"]
-    close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta"]
-
-    if any(w in t for w in open_words):
-        send_command("open")
-        st.session_state.door_state = "abierta"
-        add_log("Voz -> abrir (" + t + ")")
-    elif any(w in t for w in close_words):
-        send_command("close")
-        st.session_state.door_state = "cerrada"
-        add_log("Voz -> cerrar (" + t + ")")
-    else:
-        st.warning("No reconoci un comando en: " + t)
-
-# ── Componente HTML del microfono ───────────────────────────
-# Al reconocer la voz redirige la ventana padre a ?voice=<texto>
-# lo que dispara un rerun de Streamlit con el query param listo.
+# ── Componente del micrófono ────────────────────────────────
+# Al reconocer voz envía postMessage SIN recargar la página.
 voice_html = """
 <!DOCTYPE html>
 <html>
@@ -334,10 +344,7 @@ voice_html = """
     color: #6B1512;
     animation: pulse 1s infinite;
   }
-  @keyframes pulse {
-    0%,100% { opacity: 1; }
-    50%      { opacity: 0.65; }
-  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
   #status {
     margin-top: 8px;
     font-size: 13px;
@@ -356,7 +363,7 @@ voice_html = """
 <script>
 const btn    = document.getElementById('mic-btn');
 const status = document.getElementById('status');
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const SR     = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function startListening() {
   if (!SR) {
@@ -377,12 +384,13 @@ function startListening() {
 
   r.onresult = (e) => {
     const text = e.results[0][0].transcript;
-    status.textContent = 'Escuche: ' + text;
+    status.textContent = 'Escuché: ' + text;
     status.className = 'heard';
-    // Redirigir la ventana padre con el texto como query param
-    // Esto dispara un rerun de Streamlit con ?voice=<texto>
-    const encoded = encodeURIComponent(text);
-    window.parent.location.href = window.parent.location.pathname + '?voice=' + encoded;
+
+    // ✅ CORRECCIÓN: postMessage en lugar de redirigir directamente.
+    // Así NO se recarga la página desde aquí; el puente de abajo
+    // (height=0) recibe el mensaje y hace la redirección controlada.
+    window.parent.postMessage({ type: 'voice_command', text: text }, '*');
   };
 
   r.onerror = (e) => {
@@ -404,8 +412,25 @@ function reset() {
 </body>
 </html>
 """
-
 components.html(voice_html, height=90, scrolling=False)
+
+# ── Puente postMessage → query param ───────────────────────
+# Este componente invisible (height=0) vive en el contexto PADRE
+# de Streamlit. Escucha el postMessage del micrófono y SOLO
+# entonces redirige con ?voice=<texto>, disparando el rerun
+# de Streamlit que ya tiene a send_command() con wait_for_publish().
+bridge_html = """
+<script>
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'voice_command') {
+    const encoded = encodeURIComponent(e.data.text);
+    window.top.location.href =
+      window.top.location.pathname + '?voice=' + encoded;
+  }
+}, false);
+</script>
+"""
+components.html(bridge_html, height=0, scrolling=False)
 
 st.divider()
 
@@ -422,7 +447,7 @@ with col_open:
         if st.button("🔓  Abrir puerta", use_container_width=True):
             send_command("open")
             st.session_state.door_state = "abierta"
-            add_log("Boton -> abrir")
+            add_log("Boton → abrir")
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -432,7 +457,7 @@ with col_close:
         if st.button("🔒  Cerrar puerta", use_container_width=True):
             send_command("close")
             st.session_state.door_state = "cerrada"
-            add_log("Boton -> cerrar")
+            add_log("Boton → cerrar")
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -443,7 +468,12 @@ st.divider()
 # =========================================================
 st.subheader("Deteccion de mascotas")
 
-source = st.radio("Fuente", ["Camara", "Subir archivo"], horizontal=True, label_visibility="collapsed")
+source = st.radio(
+    "Fuente",
+    ["Camara", "Subir archivo"],
+    horizontal=True,
+    label_visibility="collapsed",
+)
 image_bytes = None
 
 if source == "Camara":
@@ -451,7 +481,7 @@ if source == "Camara":
     if photo:
         image_bytes = photo.getvalue()
 else:
-    uploaded = st.file_uploader("Sube una imagen", type=["jpg","jpeg","png"])
+    uploaded = st.file_uploader("Sube una imagen", type=["jpg", "jpeg", "png"])
     if uploaded:
         image_bytes = uploaded.read()
 
@@ -464,30 +494,30 @@ if image_bytes:
 
         if animal == "dog":
             st.session_state.last_animal = "dog"
-            st.session_state.door_state = "abierta"
+            st.session_state.door_state  = "abierta"
             send_command("dog")
             st.success("🐕 Perro detectado — puerta abierta")
-            add_log("IA -> perro")
+            add_log("IA → perro")
             st.rerun()
         elif animal == "cat":
             st.session_state.last_animal = "cat"
-            st.session_state.door_state = "abierta"
+            st.session_state.door_state  = "abierta"
             send_command("cat")
             st.success("🐈 Gato detectado — puerta abierta")
-            add_log("IA -> gato")
+            add_log("IA → gato")
             st.rerun()
         else:
             st.session_state.last_animal = "none"
-            st.session_state.door_state = "cerrada"
+            st.session_state.door_state  = "cerrada"
             send_command("close")
             st.info("No se detecto una mascota. La puerta permanece cerrada.")
-            add_log("IA -> none (cerrar)")
+            add_log("IA → none (cerrar)")
             st.rerun()
 
 st.divider()
 
 # =========================================================
-# REGISTRO
+# REGISTRO DE ACTIVIDAD
 # =========================================================
 st.subheader("Registro de actividad")
 
@@ -495,37 +525,43 @@ if st.session_state.log:
     for i, entry in enumerate(st.session_state.log):
         opacity = max(0.4, 1.0 - i * 0.07)
         st.markdown(
-            "<p style='font-size:0.83rem;"
-            "color:rgba(26,26,26," + str(opacity) + ");"
-            "padding:0.35rem 0;"
-            "border-bottom:1px solid #DEDAD5;"
-            "margin:0;'>" + entry + "</p>",
+            f"<p style='font-size:0.83rem;"
+            f"color:rgba(26,26,26,{opacity});"
+            f"padding:0.35rem 0;"
+            f"border-bottom:1px solid #DEDAD5;"
+            f"margin:0;'>{entry}</p>",
             unsafe_allow_html=True,
         )
 else:
-    st.markdown("<p style='font-size:0.83rem;color:#888;'>Sin actividad aun</p>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='font-size:0.83rem;color:#888;'>Sin actividad aun</p>",
+        unsafe_allow_html=True,
+    )
 
 # =========================================================
-# CONFIGURACION MQTT
+# CONFIGURACION MQTT (expander)
 # =========================================================
 st.markdown("<div style='margin-top:1.5rem'></div>", unsafe_allow_html=True)
 
 with st.expander("⚙️  Configuracion MQTT"):
     rows = [
-        ("Broker", MQTT_BROKER),
-        ("Puerto", str(MQTT_PORT)),
-        ("Topic comandos", TOPIC_COMMAND),
-        ("Topic estado", TOPIC_STATUS),
+        ("Broker",          MQTT_BROKER),
+        ("Puerto",          str(MQTT_PORT)),
+        ("Topic comandos",  TOPIC_COMMAND),
+        ("Topic estado",    TOPIC_STATUS),
         ("Topic deteccion", TOPIC_DETECTION),
     ]
     html_rows = "".join(
         "<div style='margin-bottom:0.5rem;'>"
-        "<span style='font-size:0.72rem;text-transform:uppercase;"
-        "letter-spacing:0.08em;color:#555555;font-weight:600;'>" + label + "</span>"
-        "<br><span style='color:#1A1A1A;font-size:0.88rem;'>" + value + "</span></div>"
+        f"<span style='font-size:0.72rem;text-transform:uppercase;"
+        f"letter-spacing:0.08em;color:#555555;font-weight:600;'>{label}</span>"
+        f"<br><span style='color:#1A1A1A;font-size:0.88rem;'>{value}</span></div>"
         for label, value in rows
     )
-    st.markdown("<div style='padding:0.2rem 0;'>" + html_rows + "</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='padding:0.2rem 0;'>{html_rows}</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown("<div style='margin-top:0.6rem'></div>", unsafe_allow_html=True)
     if st.button("🔄  Actualizar estado"):
         st.rerun()
