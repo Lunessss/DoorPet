@@ -112,7 +112,7 @@ hr { border: none; border-top: 1px solid #DEDAD5; margin: 1.6rem 0; }
 
 div[data-testid="stSuccess"] { background-color: #D4EDDA !important; color: #1A4D26 !important; border-radius: 12px !important; border: none !important; font-weight: 500 !important; }
 div[data-testid="stError"]   { background-color: #FAD7D5 !important; color: #6B1512 !important; border-radius: 12px !important; border: none !important; font-weight: 500 !important; }
-div[data-testid="stInfo"]    { background-color: #D0E4F7 !important; color: #103A60 !important; border-radius: 12px !important; border: none !important; font-weight: 500 !important; }
+div[data-testid="stInfo"]     { background-color: #D0E4F7 !important; color: #103A60 !important; border-radius: 12px !important; border: none !important; font-weight: 500 !important; }
 div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3D00 !important; border-radius: 12px !important; border: none !important; font-weight: 500 !important; }
 
 .stButton > button {
@@ -146,9 +146,6 @@ div[data-testid="stWarning"] { background-color: #FEF3CD !important; color: #5C3
 .state-card.open   { border-color: #5A9E6A; background: #EBF7EE; color: #1A4D26; }
 .state-card.closed { border-color: #C47570; background: #FAEAEA; color: #6B1512; }
 .state-card.unknown { color: #555555; }
-
-/* Ocultar el text_input de voz */
-div[data-testid="stTextInput"][aria-label="voice_hidden"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -156,8 +153,7 @@ div[data-testid="stTextInput"][aria-label="voice_hidden"] { display: none !impor
 # =========================================================
 # SESSION STATE
 # =========================================================
-defaults = {"door_state": "desconocido", "last_animal": "none",
-            "log": [], "pending_voice": ""}
+defaults = {"door_state": "desconocido", "last_animal": "none", "log": []}
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -165,30 +161,6 @@ for k, v in defaults.items():
 def add_log(msg):
     st.session_state.log.insert(0, msg)
     st.session_state.log = st.session_state.log[:10]
-
-
-# =========================================================
-# PROCESAR COMANDO DE VOZ (si hay uno pendiente)
-# Esto corre ANTES de dibujar la UI para que el estado
-# ya este actualizado cuando se renderiza la pagina.
-# =========================================================
-if st.session_state.pending_voice:
-    t = st.session_state.pending_voice.strip().lower()
-    st.session_state.pending_voice = ""
-
-    open_words  = ["open", "abre", "abrir", "abre la puerta", "abrir la puerta"]
-    close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta", "cerrar la puerta"]
-
-    if any(w in t for w in open_words):
-        send_command("open")
-        st.session_state.door_state = "abierta"
-        add_log("Voz -> abrir: " + t)
-    elif any(w in t for w in close_words):
-        send_command("close")
-        st.session_state.door_state = "cerrada"
-        add_log("Voz -> cerrar: " + t)
-    else:
-        add_log("Voz no reconocida: " + t)
 
 
 # =========================================================
@@ -227,64 +199,31 @@ st.divider()
 
 
 # =========================================================
-# CONTROL POR VOZ
-#
-# ARQUITECTURA FINAL:
-# El problema de todas las versiones anteriores es que los iframes
-# de components.html estan en un origen distinto al de la app
-# Streamlit, y window.parent esta bloqueado por la politica
-# same-origin del navegador.
-#
-# Solucion: inyectar el JS de reconocimiento de voz DIRECTAMENTE
-# en la pagina de Streamlit usando st.markdown con un <script>.
-# El script escribe el resultado en el value de un st.text_input
-# oculto simulando un evento de teclado, lo que hace que Streamlit
-# detecte el cambio y haga rerun con el valor correcto.
+# CONTROL POR VOZ (MÓDULO CORREGIDO)
 # =========================================================
 st.subheader("Control por voz")
 
-# Input oculto que recibe el texto del microfono
-voice_input = st.text_input("voice_hidden", key="voice_text_input",
-                             label_visibility="hidden", value="")
+# Usamos una estructura HTML nativa dentro de un iframe controlado por Streamlit.
+# Esto asegura que el navegador otorgue de forma confiable los permisos del micrófono.
+voice_html = """
+<div style="display:flex; flex-direction:column; gap:8px; font-family:'DM Sans', sans-serif;">
+  <button id="voice-btn" onclick="startVoice()" style="
+    width:100%; padding:10px 18px; font-size:14px; font-weight:600;
+    color:#1A1A1A; background:#FFFFFF; border:1.5px solid #BFBAB4;
+    border-radius:12px; cursor:pointer; transition:all 0.15s;">
+    🎤&nbsp; Hablar
+  </button>
+  <div id="voice-status" style="font-size:13px; color:#555555; text-align:center; min-height:18px;">
+    Haz clic para hablar
+  </div>
+</div>
 
-# Si el input tiene valor, procesarlo
-if voice_input and voice_input.strip():
-    st.session_state.pending_voice = voice_input.strip()
-    # Limpiar el input para la proxima vez
-    st.session_state.voice_text_input = ""
-    st.rerun()
-
-# JS inyectado directo en la pagina (no en iframe)
-# Busca el input de Streamlit por su key y simula escritura
-st.markdown("""
 <script>
-(function() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  // Esperar a que el DOM este listo
-  function getVoiceInput() {
-    // Streamlit renderiza los text_input como <input> dentro de un div
-    // Los buscamos por el data-testid
-    const inputs = document.querySelectorAll('input[type="text"]');
-    // El nuestro es el primero oculto (display:none en el contenedor)
-    for (const inp of inputs) {
-      const container = inp.closest('[data-testid="stTextInput"]');
-      if (container) return inp;
-    }
-    return null;
-  }
-
-  function setNativeValue(el, value) {
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype, 'value'
-    ).set;
-    nativeInputValueSetter.call(el, value);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  window.startVoice = function() {
+  
+  function startVoice() {
     if (!SR) {
-      alert('Tu navegador no soporta reconocimiento de voz. Usa Chrome.');
+      alert('Tu navegador no soporta reconocimiento de voz. Usa Google Chrome.');
       return;
     }
 
@@ -292,7 +231,7 @@ st.markdown("""
     const statusEl = document.getElementById('voice-status');
 
     const r = new SR();
-    r.lang = 'es-ES';
+    r.lang = 'es-ES'; 
     r.interimResults = false;
     r.maxAlternatives = 1;
 
@@ -302,30 +241,30 @@ st.markdown("""
     btn.style.color = '#6B1512';
     btn.disabled = true;
     statusEl.textContent = 'Escuchando... habla ahora';
-    statusEl.style.color = '#1A4D26';
 
     r.onresult = function(e) {
       const text = e.results[0][0].transcript;
-      statusEl.textContent = 'Escuche: "' + text + '"';
-
-      // Escribir en el input oculto de Streamlit
-      setTimeout(function() {
-        const inp = getVoiceInput();
-        if (inp) {
-          setNativeValue(inp, text);
-        }
-      }, 100);
+      statusEl.textContent = 'Procesando: "' + text + '"';
+      
+      // Enviamos de vuelta de manera segura la cadena de texto a Streamlit 
+      // usando la API de comunicación nativa de componentes
+      window.parent.postMessage({
+        type: 'streamlit:setComponentValue',
+        value: text
+      }, '*');
     };
 
     r.onerror = function(e) {
       statusEl.textContent = 'Error: ' + e.error + '. Intenta de nuevo.';
-      statusEl.style.color = '#6B1512';
       resetBtn();
     };
 
-    r.onend = function() { resetBtn(); };
+    r.onend = function() { 
+      resetBtn(); 
+    };
+    
     r.start();
-  };
+  }
 
   function resetBtn() {
     const btn = document.getElementById('voice-btn');
@@ -336,24 +275,33 @@ st.markdown("""
     btn.style.color = '#1A1A1A';
     btn.disabled = false;
   }
-})();
 </script>
+"""
 
-<div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
-  <button id="voice-btn" onclick="startVoice()" style="
-    width:100%; padding:10px 18px; font-size:14px; font-weight:600;
-    color:#1A1A1A; background:#FFFFFF; border:1.5px solid #BFBAB4;
-    border-radius:12px; cursor:pointer; transition:all 0.15s;
-    font-family:'DM Sans','Segoe UI',sans-serif;">
-    🎤&nbsp; Hablar
-  </button>
-  <div id="voice-status" style="
-    font-size:13px; color:#555555; text-align:center; min-height:18px;
-    font-family:'DM Sans','Segoe UI',sans-serif;">
-    Haz clic para hablar
-  </div>
-</div>
-""", unsafe_allow_html=True)
+# Renderizamos el componente y atrapamos su retorno en la variable voice_command
+with st.container():
+    voice_command = components.html(voice_html, height=75)
+
+# Procesar los comandos de voz interceptados por el componente de manera directa
+if voice_command:
+    t = voice_command.strip().lower()
+    
+    open_words  = ["open", "abre", "abrir", "abre la puerta", "abrir la puerta"]
+    close_words = ["close", "closed", "cierra", "cerrar", "cierra la puerta", "cerrar la puerta"]
+
+    if any(w in t for w in open_words):
+        send_command("open")
+        st.session_state.door_state = "abierta"
+        add_log("Voz -> abrir: " + t)
+        st.rerun()
+    elif any(w in t for w in close_words):
+        send_command("close")
+        st.session_state.door_state = "cerrada"
+        add_log("Voz -> cerrar: " + t)
+        st.rerun()
+    else:
+        add_log("Voz no reconocida: " + t)
+        st.rerun()
 
 st.divider()
 
@@ -447,7 +395,7 @@ if st.session_state.log:
         st.markdown(
             "<p style='font-size:0.83rem; color:rgba(26,26,26,"
             + str(opacity) + "); padding:0.35rem 0; "
-            "border-bottom:1px solid #DEDAD5; margin:0;'>"
+            + "border-bottom:1px solid #DEDAD5; margin:0;'>"
             + entry + "</p>",
             unsafe_allow_html=True,
         )
