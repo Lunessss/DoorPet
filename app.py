@@ -265,55 +265,63 @@ st.divider()
 # =========================================================
 st.subheader("Control por voz")
 
-stt_button = Button(label="🎤 Hablar", width=300)
-stt_button.js_on_event("button_click", CustomJS(code="""
-    var recognition = new webkitSpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'es-ES';
+voice_html = """
+<button onclick="startListening()" id="mic-btn" style="
+    padding:10px 20px; font-size:14px; font-weight:600;
+    border:1.5px solid #BFBAB4; border-radius:12px;
+    background:#fff; cursor:pointer; width:100%;">
+    🎤 Hablar
+</button>
+<div id="status" style="margin-top:8px;font-size:13px;color:#555;text-align:center;">
+    Haz clic para hablar
+</div>
 
-    recognition.onresult = function (e) {
-        var value = "";
-        for (var i = e.resultIndex; i < e.results.length; ++i) {
-            if (e.results[i].isFinal) {
-                value += e.results[i][0].transcript;
-            }
-        }
-        if (value != "") {
-            document.dispatchEvent(new CustomEvent("GET_TEXT", {detail: value}));
-        }
+<script>
+function startListening() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+        document.getElementById('status').innerText = 'Tu navegador no soporta voz.';
+        return;
     }
-    recognition.start();
-"""))
+    var r = new SR();
+    r.lang = 'es-ES';
+    r.interimResults = false;
 
-result = streamlit_bokeh_events(
-    stt_button,
-    events="GET_TEXT",
-    key="listen",
-    refresh_on_update=False,
-    override_height=75,
-    debounce_time=0
-)
+    document.getElementById('mic-btn').innerText = '🔴 Escuchando...';
+    document.getElementById('status').innerText = 'Escuchando...';
 
-if result and "GET_TEXT" in result:
-    texto = result.get("GET_TEXT").strip().lower()
-    st.write(f"Escuché: {texto}")
+    r.onresult = function(e) {
+        var texto = e.results[0][0].transcript.toLowerCase();
+        document.getElementById('status').innerText = 'Escuché: ' + texto;
 
-    message = json.dumps({"Act1": texto})
-    client1 = paho.Client("smartdoor-voice")
-    client1.connect("broker.mqttdashboard.com", 1883)
-    client1.publish("voice_ctrl", message)
+        // Enviar por MQTT usando fetch al broker HTTP de HiveMQ
+        var comando = '';
+        if (texto.includes('abre') || texto.includes('abrir') || texto.includes('open')) {
+            comando = 'open';
+        } else if (texto.includes('cierra') || texto.includes('cerrar') || texto.includes('close')) {
+            comando = 'close';
+        }
 
-    # Reflejar en el estado local
-    if any(w in texto for w in ["abre", "abrir", "open"]):
-        send_command("open")
-        st.session_state.door_state = "abierta"
-        add_log(f"Voz → abrir ({texto})")
-    elif any(w in texto for w in ["cierra", "cerrar", "close"]):
-        send_command("close")
-        st.session_state.door_state = "cerrada"
-        add_log(f"Voz → cerrar ({texto})")
+        if (comando) {
+            fetch('https://broker.hivemq.com:8884/mqtt', {
+                method: 'POST',
+                body: JSON.stringify({topic: 'smartdoor/command', payload: comando})
+            }).catch(()=>{});
+            document.getElementById('status').innerText = 'Comando enviado: ' + comando;
+        } else {
+            document.getElementById('status').innerText = 'No reconocí comando en: ' + texto;
+        }
+    };
 
+    r.onend = function() {
+        document.getElementById('mic-btn').innerText = '🎤 Hablar';
+    };
+
+    r.start();
+}
+</script>
+"""
+components.html(voice_html, height=100, scrolling=False)
 st.divider()
 
 # =========================================================
