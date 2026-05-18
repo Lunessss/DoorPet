@@ -226,7 +226,7 @@ if voice_input and voice_input.strip():
 # HEADER
 # =========================================================
 st.title("DoorPet🐾")
-st.caption("Control por voz · Botones · Cámara")
+st.markdown("<p style='color:#1A1A1A; font-size:0.85rem;'>Control por voz · Botones · IA · MQTT</p>", unsafe_allow_html=True)
 st.markdown("<div style='margin-top:0.4rem'></div>", unsafe_allow_html=True)
 
 # =========================================================
