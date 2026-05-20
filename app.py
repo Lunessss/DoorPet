@@ -5,24 +5,25 @@ import numpy as np
 from PIL import Image
 import streamlit as st
 
-# =========================================================
+# ==========================================
 # IMPORTS VOZ
-# =========================================================
-from bokeh.models import Button, CustomJS
+# ==========================================
+from bokeh.models.widgets import Button
+from bokeh.models.callbacks import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
 
-# =========================================================
+# ==========================================
 # IA
-# =========================================================
+# ==========================================
 from tensorflow.keras.applications.mobilenet_v2 import (
     MobileNetV2,
     preprocess_input,
     decode_predictions,
 )
 
-# =========================================================
+# ==========================================
 # MQTT
-# =========================================================
+# ==========================================
 import paho.mqtt.client as mqtt
 
 
