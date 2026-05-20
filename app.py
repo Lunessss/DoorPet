@@ -4,13 +4,8 @@ import time
 import numpy as np
 from PIL import Image
 import streamlit as st
+import streamlit.components.v1 as components
 
-# ==========================================
-# IMPORTS VOZ
-# ==========================================
-from bokeh.models.widgets import Button
-from bokeh.models.callbacks import CustomJS
-from streamlit_bokeh_events import streamlit_bokeh_events
 
 # ==========================================
 # IA
@@ -273,149 +268,181 @@ st.divider()
 
 
 # =========================================================
-# CONTROL POR VOZ
+# CONTROL POR VOZ SIN BOKEH
 # =========================================================
 st.subheader("🎤 Control por voz")
 
-st.write(
-    "Presiona el botón y di:\n"
-    "- abrir puerta\n"
-    "- cerrar puerta"
-)
+voice_result = components.html(
+    """
+    <div style="display:flex;flex-direction:column;gap:10px;">
+    
+        <button id="start-btn"
+        style="
+            background:#1f77ff;
+            color:white;
+            border:none;
+            padding:14px;
+            border-radius:10px;
+            font-size:16px;
+            font-weight:bold;
+            cursor:pointer;
+        ">
+            🎤 Hablar
+        </button>
 
-# =========================================================
-# BOTON VOZ
-# =========================================================
-stt_button = Button(
-    label="🎤 Hablar",
-    width=250
-)
+        <div id="output"
+        style="
+            font-size:15px;
+            color:#111;
+            font-weight:600;
+        ">
+        </div>
 
-# =========================================================
-# JAVASCRIPT VOZ
-# =========================================================
-stt_button.js_on_event(
-    "button_click",
-    CustomJS(code="""
+    </div>
 
-        var recognition = new webkitSpeechRecognition();
+    <script>
 
+    const btn = document.getElementById("start-btn");
+    const output = document.getElementById("output");
+
+    btn.onclick = () => {
+
+        const SpeechRecognition =
+            window.SpeechRecognition ||
+            window.webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+
+            output.innerHTML =
+                "Tu navegador no soporta reconocimiento de voz";
+
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+
+        recognition.lang = "es-ES";
         recognition.continuous = false;
         recognition.interimResults = false;
-        recognition.lang = "es-ES";
 
-        recognition.onresult = function(e){
+        output.innerHTML = "🎧 Escuchando...";
 
-            var value = "";
+        recognition.start();
 
-            for(var i = e.resultIndex; i < e.results.length; ++i){
+        recognition.onresult = (event) => {
 
-                if(e.results[i].isFinal){
-                    value += e.results[i][0].transcript;
-                }
-            }
+            const text =
+                event.results[0][0].transcript;
 
-            if(value != ""){
+            output.innerHTML =
+                "✅ Escuché: " + text;
 
-                document.dispatchEvent(
-                    new CustomEvent(
-                        "GET_TEXT",
-                        {detail:value}
-                    )
+            const streamlitDoc =
+                window.parent.document;
+
+            const textAreas =
+                streamlitDoc.querySelectorAll("textarea");
+
+            if(textAreas.length > 0){
+
+                const textarea = textAreas[0];
+
+                const nativeInputValueSetter =
+                    Object.getOwnPropertyDescriptor(
+                        window.HTMLTextAreaElement.prototype,
+                        "value"
+                    ).set;
+
+                nativeInputValueSetter.call(
+                    textarea,
+                    text
+                );
+
+                textarea.dispatchEvent(
+                    new Event("input", { bubbles: true })
                 );
             }
         };
 
-        recognition.start();
+        recognition.onerror = (event) => {
 
-    """)
+            output.innerHTML =
+                "❌ Error: " + event.error;
+        };
+    };
+
+    </script>
+    """,
+    height=180,
 )
 
 # =========================================================
-# STREAMLIT EVENT
+# INPUT OCULTO PARA RECIBIR TEXTO
 # =========================================================
-result = streamlit_bokeh_events(
-    stt_button,
-    events="GET_TEXT",
-    key="listen",
-    refresh_on_update=False,
-    override_height=75,
-    debounce_time=0
+voice_text = st.text_area(
+    "Comando voz",
+    key="voice_command",
+    height=1
 )
 
 # =========================================================
-# PROCESAR VOZ
+# PROCESAR COMANDO
 # =========================================================
-if result:
+if voice_text:
 
-    if "GET_TEXT" in result:
+    text = voice_text.lower().strip()
 
-        voice_text = (
-            result.get("GET_TEXT")
-            .strip()
-            .lower()
-        )
+    st.info(f"Comando reconocido: {text}")
 
-        st.info(
-            f"Comando reconocido: {voice_text}"
-        )
+    # =====================================
+    # ABRIR
+    # =====================================
+    if (
+        "abrir puerta" in text
+        or "abre la puerta" in text
+        or "abrir" in text
+        or "abre" in text
+    ):
 
-        # =====================================
-        # ABRIR
-        # =====================================
-        if (
-            "abrir puerta" in voice_text
-            or "abre la puerta" in voice_text
-            or "abrir" in voice_text
-            or "abre" in voice_text
-        ):
+        send_command("open")
 
-            send_command("open")
+        st.session_state.door_state = "abierta"
 
-            st.session_state.door_state = "abierta"
+        add_log(f"🎤 Voz → abrir ({text})")
 
-            add_log(
-                f"🎤 Voz → abrir ({voice_text})"
-            )
+        st.success("🔓 Puerta abierta")
 
-            st.success(
-                "Puerta abierta"
-            )
+        st.session_state.voice_command = ""
 
-            st.rerun()
+        st.rerun()
 
-        # =====================================
-        # CERRAR
-        # =====================================
-        elif (
-            "cerrar puerta" in voice_text
-            or "cierra la puerta" in voice_text
-            or "cerrar" in voice_text
-            or "cierra" in voice_text
-        ):
+    # =====================================
+    # CERRAR
+    # =====================================
+    elif (
+        "cerrar puerta" in text
+        or "cierra la puerta" in text
+        or "cerrar" in text
+        or "cierra" in text
+    ):
 
-            send_command("close")
+        send_command("close")
 
-            st.session_state.door_state = "cerrada"
+        st.session_state.door_state = "cerrada"
 
-            add_log(
-                f"🎤 Voz → cerrar ({voice_text})"
-            )
+        add_log(f"🎤 Voz → cerrar ({text})")
 
-            st.success(
-                "Puerta cerrada"
-            )
+        st.success("🔒 Puerta cerrada")
 
-            st.rerun()
+        st.session_state.voice_command = ""
 
-        else:
+        st.rerun()
 
-            st.warning(
-                "Comando no reconocido"
-            )
+    else:
 
+        st.warning("Comando no reconocido")
 
-st.divider()
+        st.session_state.voice_command = ""
 
 
 # =========================================================
