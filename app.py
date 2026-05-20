@@ -5,22 +5,29 @@ import numpy as np
 from PIL import Image
 import streamlit as st
 
-# ===== NUEVOS IMPORTS PARA VOZ =====
-from bokeh.models.widgets import Button
-from bokeh.models import CustomJS
+# =========================================================
+# IMPORTS VOZ
+# =========================================================
+from bokeh.models import Button, CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
 
+# =========================================================
+# IA
+# =========================================================
 from tensorflow.keras.applications.mobilenet_v2 import (
     MobileNetV2,
     preprocess_input,
     decode_predictions,
 )
 
+# =========================================================
+# MQTT
+# =========================================================
 import paho.mqtt.client as mqtt
 
 
 # =========================================================
-# CONFIGURACION MQTT
+# CONFIG MQTT
 # =========================================================
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
@@ -31,7 +38,41 @@ TOPIC_DETECTION = "DoorPet/detection"
 
 
 # =========================================================
-# MODELO IA
+# CONFIG STREAMLIT
+# =========================================================
+st.set_page_config(
+    page_title="DoorPet",
+    page_icon="🐾",
+    layout="centered",
+)
+
+# =========================================================
+# CSS
+# =========================================================
+st.markdown("""
+<style>
+
+.stApp{
+    background-color:#F5F5F5;
+}
+
+h1,h2,h3,p{
+    color:#111111;
+}
+
+.stButton button{
+    border-radius:10px;
+    height:50px;
+    font-size:16px;
+    font-weight:600;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# =========================================================
+# CARGAR MODELO IA
 # =========================================================
 @st.cache_resource
 def load_model():
@@ -42,10 +83,31 @@ model = load_model()
 
 
 # =========================================================
-# MQTT
+# SESSION STATE
+# =========================================================
+for key, val in [
+    ("door_state", "desconocido"),
+    ("last_animal", "none"),
+    ("log", []),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = val
+
+
+# =========================================================
+# FUNCION LOG
+# =========================================================
+def add_log(msg):
+    st.session_state.log.insert(0, msg)
+    st.session_state.log = st.session_state.log[:10]
+
+
+# =========================================================
+# MQTT CALLBACK
 # =========================================================
 def on_message(client, userdata, msg):
-    payload = msg.payload.decode("utf-8").strip().lower()
+
+    payload = msg.payload.decode().strip().lower()
 
     if msg.topic == TOPIC_STATUS:
 
@@ -61,14 +123,23 @@ def on_message(client, userdata, msg):
             st.session_state.last_animal = payload
 
 
+# =========================================================
+# MQTT CLIENT
+# =========================================================
 @st.cache_resource
 def get_mqtt_client():
 
-    client = mqtt.Client(client_id="Sulusa" + uuid.uuid4().hex[:8])
+    client = mqtt.Client(
+        client_id="DoorPet_" + uuid.uuid4().hex[:6]
+    )
 
     client.on_message = on_message
 
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.connect(
+        MQTT_BROKER,
+        MQTT_PORT,
+        60
+    )
 
     client.subscribe(TOPIC_STATUS)
     client.subscribe(TOPIC_DETECTION)
@@ -81,105 +152,91 @@ def get_mqtt_client():
 mqtt_client = get_mqtt_client()
 
 
-def send_command(command: str):
+# =========================================================
+# ENVIAR COMANDOS MQTT
+# =========================================================
+def send_command(command):
 
     result = mqtt_client.publish(
         TOPIC_COMMAND,
-        command,
-        retain=False
+        command
     )
 
     try:
         result.wait_for_publish()
-    except Exception:
+    except:
         pass
 
     time.sleep(0.3)
 
 
 # =========================================================
-# DETECCION DE ANIMALES
+# DETECCION IA
 # =========================================================
-def detect_animal(image_bytes: bytes) -> str:
+def detect_animal(image_bytes):
 
     try:
-        img = Image.open(io.BytesIO(image_bytes))
-        img = img.convert("RGB").resize((224, 224))
+
+        img = Image.open(
+            io.BytesIO(image_bytes)
+        ).convert("RGB")
+
+        img = img.resize((224, 224))
 
         x = preprocess_input(
             np.expand_dims(np.array(img), axis=0)
         )
 
-        results = decode_predictions(
+        preds = decode_predictions(
             model.predict(x, verbose=0),
             top=5
         )[0]
 
-        dog_kw = [
-            "dog", "retriever", "shepherd", "poodle",
-            "terrier", "beagle", "husky", "bulldog",
-            "chihuahua", "pug", "doberman",
-            "rottweiler", "labrador",
-            "malamute", "spaniel", "wolfhound"
+        dog_words = [
+            "dog",
+            "retriever",
+            "poodle",
+            "terrier",
+            "beagle",
+            "husky",
+            "bulldog",
+            "labrador",
+            "rottweiler",
+            "doberman",
+            "shepherd",
         ]
 
-        for _, label, _ in results:
+        for _, label, _ in preds:
 
             label = label.lower()
 
             if "cat" in label:
                 return "cat"
 
-            if any(w in label for w in dog_kw):
+            if any(w in label for w in dog_words):
                 return "dog"
 
         return "none"
 
-    except Exception:
+    except:
         return "none"
-
-
-# =========================================================
-# STREAMLIT CONFIG
-# =========================================================
-st.set_page_config(
-    page_title="DoorPet",
-    page_icon="🐾",
-    layout="centered",
-)
-
-# =========================================================
-# SESSION STATE
-# =========================================================
-for key, val in [
-    ("door_state", "desconocido"),
-    ("last_animal", "none"),
-    ("log", []),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = val
-
-
-def add_log(msg: str):
-
-    st.session_state.log.insert(0, msg)
-    st.session_state.log = st.session_state.log[:10]
 
 
 # =========================================================
 # HEADER
 # =========================================================
-st.title("DoorPet 🐾")
+st.title("🐾 DoorPet")
 
-st.markdown(
-    "Control por voz · MQTT · IA"
+st.write(
+    "Sistema inteligente de control de puerta "
+    "por voz + IA + MQTT"
 )
 
 st.divider()
 
 
 # =========================================================
-# ESTADO ACTUAL
+# ESTADO
 # =========================================================
 col1, col2 = st.columns(2)
 
@@ -188,10 +245,10 @@ with col1:
     st.subheader("Estado puerta")
 
     if st.session_state.door_state == "abierta":
-        st.success("🔓 Abierta")
+        st.success("🔓 ABIERTA")
 
     elif st.session_state.door_state == "cerrada":
-        st.error("🔒 Cerrada")
+        st.error("🔒 CERRADA")
 
     else:
         st.info("Estado desconocido")
@@ -199,7 +256,7 @@ with col1:
 
 with col2:
 
-    st.subheader("Ultima deteccion")
+    st.subheader("Última detección")
 
     if st.session_state.last_animal == "dog":
         st.success("🐕 Perro")
@@ -217,56 +274,65 @@ st.divider()
 # =========================================================
 # CONTROL POR VOZ
 # =========================================================
-st.subheader("Control por voz")
+st.subheader("🎤 Control por voz")
 
 st.write(
-    "Presiona el botón y di: "
-    "'abrir puerta' o 'cerrar puerta'"
+    "Presiona el botón y di:\n"
+    "- abrir puerta\n"
+    "- cerrar puerta"
 )
 
-# Botón de voz
+# =========================================================
+# BOTON VOZ
+# =========================================================
 stt_button = Button(
     label="🎤 Hablar",
     width=250
 )
 
-# JS reconocimiento
+# =========================================================
+# JAVASCRIPT VOZ
+# =========================================================
 stt_button.js_on_event(
     "button_click",
     CustomJS(code="""
+
         var recognition = new webkitSpeechRecognition();
 
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = "es-ES";
 
-        recognition.onresult = function (e) {
+        recognition.onresult = function(e){
 
             var value = "";
 
-            for (var i = e.resultIndex; i < e.results.length; ++i) {
+            for(var i = e.resultIndex; i < e.results.length; ++i){
 
-                if (e.results[i].isFinal) {
+                if(e.results[i].isFinal){
                     value += e.results[i][0].transcript;
                 }
             }
 
-            if (value != "") {
+            if(value != ""){
 
                 document.dispatchEvent(
                     new CustomEvent(
                         "GET_TEXT",
-                        {detail: value}
+                        {detail:value}
                     )
                 );
             }
         };
 
         recognition.start();
+
     """)
 )
 
-# Streamlit <-> JS
+# =========================================================
+# STREAMLIT EVENT
+# =========================================================
 result = streamlit_bokeh_events(
     stt_button,
     events="GET_TEXT",
@@ -276,7 +342,9 @@ result = streamlit_bokeh_events(
     debounce_time=0
 )
 
-# Procesar voz
+# =========================================================
+# PROCESAR VOZ
+# =========================================================
 if result:
 
     if "GET_TEXT" in result:
@@ -287,11 +355,13 @@ if result:
             .lower()
         )
 
-        st.info(f"Comando reconocido: {voice_text}")
+        st.info(
+            f"Comando reconocido: {voice_text}"
+        )
 
-        # =========================================
+        # =====================================
         # ABRIR
-        # =========================================
+        # =====================================
         if (
             "abrir puerta" in voice_text
             or "abre la puerta" in voice_text
@@ -303,17 +373,19 @@ if result:
 
             st.session_state.door_state = "abierta"
 
-            add_log(f"🎤 Voz → abrir ({voice_text})")
+            add_log(
+                f"🎤 Voz → abrir ({voice_text})"
+            )
 
             st.success(
-                "Puerta abierta por voz"
+                "Puerta abierta"
             )
 
             st.rerun()
 
-        # =========================================
+        # =====================================
         # CERRAR
-        # =========================================
+        # =====================================
         elif (
             "cerrar puerta" in voice_text
             or "cierra la puerta" in voice_text
@@ -325,10 +397,12 @@ if result:
 
             st.session_state.door_state = "cerrada"
 
-            add_log(f"🎤 Voz → cerrar ({voice_text})")
+            add_log(
+                f"🎤 Voz → cerrar ({voice_text})"
+            )
 
             st.success(
-                "Puerta cerrada por voz"
+                "Puerta cerrada"
             )
 
             st.rerun()
@@ -346,7 +420,7 @@ st.divider()
 # =========================================================
 # BOTONES MANUALES
 # =========================================================
-st.subheader("Control manual")
+st.subheader("🔘 Control manual")
 
 col_open, col_close = st.columns(2)
 
@@ -361,7 +435,7 @@ with col_open:
 
         st.session_state.door_state = "abierta"
 
-        add_log("Boton → abrir")
+        add_log("Botón → abrir")
 
         st.rerun()
 
@@ -377,7 +451,7 @@ with col_close:
 
         st.session_state.door_state = "cerrada"
 
-        add_log("Boton → cerrar")
+        add_log("Botón → cerrar")
 
         st.rerun()
 
@@ -386,18 +460,21 @@ st.divider()
 
 
 # =========================================================
-# DETECCION DE MASCOTAS
+# IA DETECCION
 # =========================================================
-st.subheader("Deteccion de mascotas")
+st.subheader("📷 Detección de mascotas")
 
 source = st.radio(
     "Fuente",
     ["Camara", "Subir archivo"],
-    horizontal=True,
+    horizontal=True
 )
 
 image_bytes = None
 
+# =========================================================
+# CAMARA
+# =========================================================
 if source == "Camara":
 
     photo = st.camera_input(
@@ -407,6 +484,9 @@ if source == "Camara":
     if photo:
         image_bytes = photo.getvalue()
 
+# =========================================================
+# ARCHIVO
+# =========================================================
 else:
 
     uploaded = st.file_uploader(
@@ -418,11 +498,13 @@ else:
         image_bytes = uploaded.read()
 
 
+# =========================================================
+# MOSTRAR IMAGEN
+# =========================================================
 if image_bytes:
 
     st.image(
         image_bytes,
-        caption="Imagen",
         width=300
     )
 
@@ -432,13 +514,16 @@ if image_bytes:
     ):
 
         with st.spinner(
-            "Analizando..."
+            "Analizando imagen..."
         ):
 
             animal = detect_animal(
                 image_bytes
             )
 
+        # =====================================
+        # PERRO
+        # =====================================
         if animal == "dog":
 
             st.session_state.last_animal = "dog"
@@ -451,6 +536,9 @@ if image_bytes:
 
             add_log("IA → perro")
 
+        # =====================================
+        # GATO
+        # =====================================
         elif animal == "cat":
 
             st.session_state.last_animal = "cat"
@@ -463,6 +551,9 @@ if image_bytes:
 
             add_log("IA → gato")
 
+        # =====================================
+        # NADA
+        # =====================================
         else:
 
             st.session_state.last_animal = "none"
@@ -470,7 +561,7 @@ if image_bytes:
             send_command("close")
 
             st.info(
-                "No se detecto mascota"
+                "No se detectó mascota"
             )
 
             add_log("IA → none")
@@ -480,16 +571,18 @@ st.divider()
 
 
 # =========================================================
-# LOG
+# REGISTRO
 # =========================================================
-st.subheader("Registro")
+st.subheader("📋 Registro")
 
 if st.session_state.log:
 
     for entry in st.session_state.log:
+
         st.write("•", entry)
 
 else:
+
     st.info("Sin actividad")
 
 
@@ -499,10 +592,10 @@ st.divider()
 # =========================================================
 # MQTT INFO
 # =========================================================
-with st.expander("⚙️ Configuracion MQTT"):
+with st.expander("⚙️ Configuración MQTT"):
 
     st.write("Broker:", MQTT_BROKER)
     st.write("Puerto:", MQTT_PORT)
     st.write("Topic comandos:", TOPIC_COMMAND)
     st.write("Topic estado:", TOPIC_STATUS)
-    st.write("Topic deteccion:", TOPIC_DETECTION)
+    st.write("Topic detección:", TOPIC_DETECTION)
