@@ -36,8 +36,6 @@ TOPIC_DETECTION = "DoorPet/detection"
 # =========================================================
 # CONFIG STREAMLIT
 # =========================================================
-image = Image.open('doorpet,png')
-st.image(image, width=350)
 st.set_page_config(
     page_title="DoorPet",
     page_icon="🐾",
