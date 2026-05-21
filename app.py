@@ -221,6 +221,11 @@ def detect_animal(image_bytes):
 # =========================================================
 # HEADER
 # =========================================================
+col1, col2, col3 = st.columns([1,2,1])
+
+with col2:
+    st.image("doorpet.png", width=220)
+
 st.title("🐾 DoorPet")
 
 st.write(
