@@ -221,12 +221,9 @@ def detect_animal(image_bytes):
 # =========================================================
 # HEADER
 # =========================================================
-col1, col2, col3 = st.columns([1,2,1])
+st.image("doorpet.png", width=180)
 
-with col2:
-    st.image("doorpet.png", width=220)
-
-st.title("🐾 DoorPet")
+st.title("🐾")
 
 st.write(
     "Sistema inteligente de control de puerta "
@@ -234,7 +231,6 @@ st.write(
 )
 
 st.divider()
-
 
 # =========================================================
 # ESTADO
